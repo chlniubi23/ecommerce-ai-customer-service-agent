@@ -1,14 +1,15 @@
 """
-工单创建 Flow Handler
+投诉工单 Flow Handler（只读）
 
 职责：
-- 处理 TICKET 意图
-- 调用 TicketTool 创建售后工单
-- 使用 LLM 自然语言总结工单结果
+- 处理 TICKET 意图中的"跟进已有投诉"：读取真实投诉记录并总结
+- 其余 TICKET 意图只给出创建指引，绝不在本 Flow 内写库
 
-架构：
-  用户输入 → ToolRouter → TicketTool → Tool Result
-  → Tool Result 注入 Prompt → LLM → AI 回复
+安全属性（AI 绝不静默建单）：
+- 明确的创建请求在 agents/agent.py 的确认闸门被拦截并向用户确认；
+- 用户确认后由闸门直接调用 complaint_create 建单；
+- 因此本 Flow 不允许存在任何写库路径 —— 否则 LLM 路由到 ticket 的
+  模糊输入（如"客服态度太差了"）会在无确认的情况下建单。
 """
 
 import logging
@@ -19,22 +20,8 @@ from app.flows.base import BaseFlow, FlowResult
 from app.schemas.intent import IntentResult
 from app.models.message import Message, MessageRole
 from app.services.llm import call_llm
-from app.tools.tool_router import select_tool
-from app.tools.executors.tool_executor import tool_executor
 
 logger = logging.getLogger(__name__)
-
-TICKET_PROMPT = """你是电商平台的售后客服。
-
-你的职责是帮助用户创建售后工单。
-
-回复要求：
-1. 确认已为用户创建工单
-2. 告知工单号和预计处理时间
-3. 如果工具返回了结果，用自然语言总结
-4. 语气亲切专业
-5. 不要输出 JSON，只输出自然语言回复
-"""
 
 FOLLOWUP_PROMPT = """你是投诉跟进客服。只基于下面给出的真实投诉记录回答：
 1. 当前处理进度（状态、优先级、最近处理记录）
@@ -44,44 +31,26 @@ FOLLOWUP_PROMPT = """你是投诉跟进客服。只基于下面给出的真实�
 
 
 class TicketFlow(BaseFlow):
-    """工单创建处理器"""
+    """投诉工单处理器（跟进只读 + 创建指引，本 Flow 内绝不写库）"""
 
     async def handle(self, intent_result: IntentResult, history: list[dict], slots: dict | None = None) -> FlowResult:
         logger.info(f"TicketFlow 处理: {intent_result.raw_input[:50]}")
 
         # 跟进已有投诉：只读分支，读取真实投诉记录后直接返回。
-        # 必须先于 select_tool/创建路径，任何跟进请求都绝不能落入创建投诉。
         if is_followup_request(intent_result.raw_input):
             return await self._handle_followup(intent_result, history)
 
-        tool_calls = []
-        user_message = intent_result.raw_input
-
-        # 通过 ToolRouter 决策
-        plan = await select_tool(
-            intent="ticket",
-            user_input=intent_result.raw_input,
-            history=history,
+        # 非跟进、非明确创建（明确创建已在 agent.py 确认闸门被拦截并确认）：
+        # 绝不静默建单 —— 不调用任何工具/写库，只给出创建指引。
+        logger.info("TicketFlow: 非跟进且未经确认，不建单，返回创建指引")
+        content = (
+            "如果你想提交投诉，我可以帮你创建投诉工单——"
+            "请回复“我要提交投诉 + 简单描述遇到的问题”，"
+            "我会先和你确认投诉内容，确认后再正式提交。"
         )
-
-        if plan.should_call and plan.tool:
-            exec_result = await tool_executor.execute(plan.tool, **plan.params)
-            tool_calls.append(exec_result.to_trace_dict())
-            if exec_result.success:
-                user_message = f"{intent_result.raw_input}\n\n{exec_result.to_context_string()}"
-                logger.info("TicketFlow: 工单创建成功，注入上下文")
-        else:
-            logger.info(f"TicketFlow: 未调用工具 - {plan.reason}")
-
-        content = await call_llm(
-            system_prompt=TICKET_PROMPT,
-            user_message=user_message,
-            history=history,
-        )
-
         return FlowResult(
             message=Message(role=MessageRole.ASSISTANT, content=content),
-            tool_calls=tool_calls,
+            tool_calls=[],
         )
 
     async def _handle_followup(self, intent_result: IntentResult, history: list[dict]) -> FlowResult:

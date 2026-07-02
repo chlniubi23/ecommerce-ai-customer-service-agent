@@ -32,8 +32,12 @@ _CREATE_VERBS = ("创建", "提交", "发起", "新建", "立案", "我要", "�
 # 创建动作的目标名词
 _COMPLAINT_NOUNS = ("投诉", "工单", "客诉")
 
-# 投诉/工单编号（跟进时用户可能给投诉号 CMP... 或工单号 TKT...）
-_TICKET_REF_PATTERN = re.compile(r'\b((?:CMP|TKT)[A-Za-z0-9_\-]{2,40})\b')
+# 投诉/工单编号（跟进时用户可能给投诉号 CMP... 或工单号 TKT...）。
+# 注意：不能用 \b —— 编号紧贴中文时（"工单CMP_DEMO_D01的进度"）\b 不成立，
+# 改用字母数字负向环视做边界。
+_TICKET_REF_PATTERN = re.compile(
+    r'(?<![A-Za-z0-9])((?:CMP|TKT)[A-Za-z0-9_\-]{2,40})(?![A-Za-z0-9])'
+)
 
 # 跟进/查询进度类提示词
 _FOLLOWUP_HINTS = (
