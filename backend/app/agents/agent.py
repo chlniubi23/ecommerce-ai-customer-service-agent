@@ -493,6 +493,28 @@ async def run(
     session = session_manager.get_or_create(session_id)
     session.add_history("user", user_message)
 
+    # ===== 待确认投诉短路：用户上一轮被要求确认，本轮直接交给确认闸门 =====
+    # 避免"确认"被当成新意图重新分类，导致 pending_complaint 被搁置、确认建单永不触发。
+    if session.pending_complaint is not None:
+        pending_intent = IntentResult(
+            intent=IntentType.TICKET,
+            confidence=1.0,
+            raw_input=user_message,
+        )
+        gate_result = await _handle_complaint_gate(
+            session=session,
+            user_message=user_message,
+            intent_result=pending_intent,
+            intent_desc=INTENT_DESCRIPTIONS.get(IntentType.TICKET, "创建工单/售后"),
+            history=history,
+            trace_id=trace_id,
+            total_start=total_start,
+            steps=steps,
+            session_id=session_id,
+        )
+        if gate_result is not None:
+            return gate_result
+
     # 用于 Trace 的变量
     intent_result: IntentResult | None = None
     intent_desc = ""
