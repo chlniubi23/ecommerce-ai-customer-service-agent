@@ -761,3 +761,45 @@ class WorkflowRuntimeRepository(MySQLRepository):
         for field in ("fsm_state", "slot_state", "checkpoint_info", "resume_info"):
             record[field] = json_loads(record.get(field), {})
         return record
+
+
+class CouponRepository(MySQLRepository):
+    """演示优惠券数据源。
+
+    当前业务库没有优惠券表，这里返回确定性演示数据，让 AI 能真实回答
+    "我当前有哪些可用优惠券"。有真实 user_coupons 表后可替换为 SQL 查询。
+    """
+
+    def list_by_user(self, user_id: str) -> list[dict[str, Any]]:
+        if not user_id:
+            return []
+        return [
+            {
+                "coupon_id": "CPN_DEMO_001",
+                "coupon_name": "满200减30",
+                "coupon_type": "满减券",
+                "threshold_amount": 200,
+                "discount_amount": 30,
+                "coupon_status": "可用",
+                "valid_until": "2026-12-31",
+                "applicable_scope": "全场通用",
+            },
+            {
+                "coupon_id": "CPN_DEMO_002",
+                "coupon_name": "数码专区95折",
+                "coupon_type": "折扣券",
+                "discount_rate": 0.95,
+                "coupon_status": "可用",
+                "valid_until": "2026-09-30",
+                "applicable_scope": "数码家电",
+            },
+            {
+                "coupon_id": "CPN_DEMO_003",
+                "coupon_name": "新人首单立减15",
+                "coupon_type": "立减券",
+                "discount_amount": 15,
+                "coupon_status": "已使用",
+                "valid_until": "2026-06-30",
+                "applicable_scope": "全场通用",
+            },
+        ]
