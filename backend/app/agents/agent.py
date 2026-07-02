@@ -495,25 +495,35 @@ async def run(
 
     # ===== 待确认投诉短路：用户上一轮被要求确认，本轮直接交给确认闸门 =====
     # 避免"确认"被当成新意图重新分类，导致 pending_complaint 被搁置、确认建单永不触发。
+    # 但仅在本轮是"确认/拒绝"时短路；用户若转向无关问题（如查物流），
+    # 应丢弃过期草稿并走正常路由，而不是被闸门反复追问。
     if session.pending_complaint is not None:
-        pending_intent = IntentResult(
-            intent=IntentType.TICKET,
-            confidence=1.0,
-            raw_input=user_message,
-        )
-        gate_result = await _handle_complaint_gate(
-            session=session,
-            user_message=user_message,
-            intent_result=pending_intent,
-            intent_desc=INTENT_DESCRIPTIONS.get(IntentType.TICKET, "创建工单/售后"),
-            history=history,
-            trace_id=trace_id,
-            total_start=total_start,
-            steps=steps,
-            session_id=session_id,
-        )
-        if gate_result is not None:
-            return gate_result
+        from app.agents.complaint_intent import is_confirmation, is_denial
+
+        if is_confirmation(user_message) or is_denial(user_message):
+            pending_intent = IntentResult(
+                intent=IntentType.TICKET,
+                confidence=1.0,
+                raw_input=user_message,
+            )
+            gate_result = await _handle_complaint_gate(
+                session=session,
+                user_message=user_message,
+                intent_result=pending_intent,
+                intent_desc=INTENT_DESCRIPTIONS.get(IntentType.TICKET, "创建工单/售后"),
+                history=history,
+                trace_id=trace_id,
+                total_start=total_start,
+                steps=steps,
+                session_id=session_id,
+            )
+            if gate_result is not None:
+                return gate_result
+        else:
+            # 无关轮次：丢弃过期草稿，继续走正常分类/路由（不 return）
+            logger.info("[Agent] 放弃未确认投诉草稿，用户转向了其他问题")
+            session.pending_complaint = None
+            session_manager.save(session)
 
     # 用于 Trace 的变量
     intent_result: IntentResult | None = None
