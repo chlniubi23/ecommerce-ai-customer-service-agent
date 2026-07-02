@@ -1,0 +1,763 @@
+"""Business repositories used by Agent tools and workflow persistence."""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from app.database.connection import MySQLRepository, json_dumps, json_loads
+
+
+def _like(value: str) -> str:
+    return f"%{value.strip()}%"
+
+
+def _numeric_id(prefix: str, digits: int = 12) -> str:
+    value = str(uuid.uuid4().int % (10**digits)).zfill(digits)
+    return f"{prefix}{value}"
+
+
+class UserRepository(MySQLRepository):
+    def find_by_login(self, login: str) -> dict[str, Any] | None:
+        return self.fetch_one(
+            """
+            SELECT user_id, username, email, phone, password_hash, full_name,
+                   status, created_at, last_login_at
+            FROM users
+            WHERE username = %s OR email = %s OR phone = %s
+            LIMIT 1
+            """,
+            (login, login, login),
+        )
+
+    def get_by_id(self, user_id: str) -> dict[str, Any] | None:
+        user = self.fetch_one(
+            """
+            SELECT user_id, username, email, phone, full_name, status, created_at, last_login_at
+            FROM users
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        )
+        if not user:
+            return None
+        user["addresses"] = self.fetch_all(
+            """
+            SELECT address_id, receiver_name, phone, province, city, district,
+                   address_line, postal_code, is_default
+            FROM user_addresses
+            WHERE user_id = %s AND status IN ('active', '正常')
+            ORDER BY is_default DESC, created_at DESC
+            """,
+            (user_id,),
+        )
+        return user
+
+    def create_user(
+        self,
+        username: str,
+        email: str,
+        phone: str,
+        password_hash: str,
+        full_name: str,
+    ) -> dict[str, Any]:
+        user_id = f"USR{uuid.uuid4().hex[:12].upper()}"
+        self.execute(
+            """
+            INSERT INTO users (
+                user_id, username, email, phone, password_hash, full_name,
+                status, created_at, updated_at, last_login_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, '正常', NOW(), NOW(), NOW())
+            """,
+            (user_id, username, email, phone, password_hash, full_name),
+        )
+        self.execute(
+            """
+            INSERT INTO user_addresses (
+                address_id, user_id, receiver_name, phone, province, city,
+                district, address_line, postal_code, is_default, status,
+                created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, '上海市', '上海市', '浦东新区',
+                    '演示平台默认收货地址', '200000', 1, '正常', NOW(), NOW())
+            """,
+            (f"ADDR{uuid.uuid4().hex[:12].upper()}", user_id, full_name, phone),
+        )
+        created = self.get_by_id(user_id)
+        if not created:
+            raise RuntimeError("User was inserted but could not be loaded")
+        return created
+
+    def add_address(
+        self,
+        user_id: str,
+        receiver_name: str,
+        phone: str,
+        province: str,
+        city: str,
+        district: str,
+        address_line: str,
+        postal_code: str = "",
+        is_default: bool = False,
+    ) -> dict[str, Any]:
+        address_id = f"ADDR{uuid.uuid4().hex[:12].upper()}"
+        if is_default:
+            self.execute("UPDATE user_addresses SET is_default = 0 WHERE user_id = %s", (user_id,))
+        self.execute(
+            """
+            INSERT INTO user_addresses (
+                address_id, user_id, receiver_name, phone, province, city,
+                district, address_line, postal_code, is_default, status,
+                created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, '正常', NOW(), NOW())
+            """,
+            (
+                address_id,
+                user_id,
+                receiver_name,
+                phone,
+                province,
+                city,
+                district,
+                address_line,
+                postal_code,
+                1 if is_default else 0,
+            ),
+        )
+        row = self.fetch_one(
+            """
+            SELECT address_id, receiver_name, phone, province, city, district,
+                   address_line, postal_code, is_default
+            FROM user_addresses
+            WHERE address_id = %s
+            """,
+            (address_id,),
+        )
+        if not row:
+            raise RuntimeError("Address was inserted but could not be loaded")
+        return row
+
+
+class ProductRepository(MySQLRepository):
+    ACTIVE_STATUSES = ("active", "draft", "archived", "上架", "预售", "售罄", "下架")
+
+    def list_products(
+        self,
+        keyword: str = "",
+        category_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        conditions = ["p.product_status IN ('active', 'draft', 'archived', '上架', '预售', '售罄', '下架')"]
+        params: list[Any] = []
+        if keyword:
+            conditions.append(
+                """
+                (
+                  p.product_name LIKE %s OR p.description LIKE %s OR p.tags LIKE %s
+                  OR b.brand_name LIKE %s OR c.category_name LIKE %s OR p.sku_id LIKE %s
+                )
+                """
+            )
+            params.extend([_like(keyword)] * 6)
+        if category_id:
+            conditions.append("(p.category_id = %s OR c.parent_id = %s)")
+            params.extend([category_id, category_id])
+
+        rows = self.fetch_all(
+            f"""
+            SELECT p.product_id, p.sku_id, p.product_name, p.description,
+                   p.brand_id, b.brand_name, p.category_id, c.category_name,
+                   c.category_path, p.price, p.currency, p.product_status,
+                   p.tags, p.attributes, i.quantity, i.available_quantity,
+                   i.reserved_quantity, i.safety_stock, i.inventory_status,
+                   p.updated_at
+            FROM products p
+            LEFT JOIN brands b ON b.brand_id = p.brand_id
+            LEFT JOIN categories c ON c.category_id = p.category_id
+            LEFT JOIN inventory i ON i.sku_id = p.sku_id
+            WHERE {' AND '.join(conditions)}
+            ORDER BY p.product_status IN ('active', '上架') DESC, i.available_quantity DESC, p.updated_at DESC
+            LIMIT %s
+            """,
+            tuple(params + [limit]),
+        )
+        for row in rows:
+            row["tags"] = json_loads(row.get("tags"), [])
+            row["attributes"] = json_loads(row.get("attributes"), {})
+            row["images"] = self.get_product_images(row["product_id"])
+        return rows
+
+    def get_product(self, product_id: str) -> dict[str, Any] | None:
+        rows = self.fetch_all(
+            """
+            SELECT p.product_id, p.sku_id, p.product_name, p.description,
+                   p.brand_id, b.brand_name, p.category_id, c.category_name,
+                   c.category_path, p.price, p.currency, p.product_status,
+                   p.version, p.tags, p.attributes, i.quantity,
+                   i.available_quantity, i.reserved_quantity, i.safety_stock,
+                   i.inventory_status, p.published_at, p.created_at, p.updated_at
+            FROM products p
+            LEFT JOIN brands b ON b.brand_id = p.brand_id
+            LEFT JOIN categories c ON c.category_id = p.category_id
+            LEFT JOIN inventory i ON i.sku_id = p.sku_id
+            WHERE p.product_id = %s
+            LIMIT 1
+            """,
+            (product_id,),
+        )
+        if not rows:
+            return None
+        product = rows[0]
+        product["tags"] = json_loads(product.get("tags"), [])
+        product["attributes"] = json_loads(product.get("attributes"), {})
+        product["images"] = self.get_product_images(product_id)
+        return product
+
+    def list_categories(self) -> list[dict[str, Any]]:
+        return self.fetch_all(
+            """
+            SELECT category_id, parent_id, category_name, category_level,
+                   category_path, category_status, sort_order
+            FROM categories
+            WHERE category_status IN ('active', '正常')
+            ORDER BY category_level ASC, sort_order ASC, category_name ASC
+            """
+        )
+
+    def search_products(self, keyword: str, limit: int = 10) -> list[dict[str, Any]]:
+        rows = self.fetch_all(
+            """
+            SELECT p.product_id, p.sku_id, p.product_name, p.description, p.brand_id,
+                   b.brand_name, p.category_id, c.category_name, c.category_path,
+                   p.price, p.currency, p.product_status, p.tags, p.attributes,
+                   i.quantity, i.available_quantity, i.reserved_quantity,
+                   i.safety_stock, i.inventory_status, p.updated_at
+            FROM products p
+            LEFT JOIN brands b ON b.brand_id = p.brand_id
+            LEFT JOIN categories c ON c.category_id = p.category_id
+            LEFT JOIN inventory i ON i.sku_id = p.sku_id
+            WHERE p.product_status IN ('active', 'draft', 'archived', '上架', '预售', '售罄', '下架')
+              AND (
+                p.product_name LIKE %s OR p.description LIKE %s OR p.tags LIKE %s
+                OR b.brand_name LIKE %s OR c.category_name LIKE %s OR p.sku_id LIKE %s
+              )
+            ORDER BY
+              CASE WHEN p.product_name LIKE %s THEN 0 ELSE 1 END,
+              p.product_status IN ('active', '上架') DESC,
+              i.available_quantity DESC,
+              p.updated_at DESC
+            LIMIT %s
+            """,
+            (
+                _like(keyword),
+                _like(keyword),
+                _like(keyword),
+                _like(keyword),
+                _like(keyword),
+                _like(keyword),
+                _like(keyword),
+                limit,
+            ),
+        )
+        for row in rows:
+            row["tags"] = json_loads(row.get("tags"), [])
+            row["attributes"] = json_loads(row.get("attributes"), {})
+            row["images"] = self.get_product_images(row["product_id"])
+        return rows
+
+    def get_by_sku_or_name(self, product_name: str) -> dict[str, Any] | None:
+        rows = self.search_products(product_name, limit=1)
+        return rows[0] if rows else None
+
+    def get_product_images(self, product_id: str) -> list[dict[str, Any]]:
+        return self.fetch_all(
+            """
+            SELECT image_id, image_url, alt_text, is_primary, sort_order
+            FROM product_images
+            WHERE product_id = %s
+            ORDER BY is_primary DESC, sort_order ASC
+            """,
+            (product_id,),
+        )
+
+    def get_inventory(self, product_name: str) -> dict[str, Any] | None:
+        return self.get_by_sku_or_name(product_name)
+
+
+class OrderRepository(MySQLRepository):
+    def list_user_orders(self, user_id: str) -> list[dict[str, Any]]:
+        orders = self.fetch_all(
+            """
+            SELECT o.order_id, o.user_id, o.order_status, o.payment_status,
+                   o.shipping_status, o.receipt_status, o.total_amount,
+                   o.currency, o.created_at, o.paid_at, o.completed_at,
+                   s.current_status AS logistics_status, s.estimated_delivery_at
+            FROM orders o
+            LEFT JOIN logistics_shipments s ON s.order_id = o.order_id
+            WHERE o.user_id = %s
+            ORDER BY o.created_at DESC
+            """,
+            (user_id,),
+        )
+        for order in orders:
+            order["items"] = self.fetch_all(
+                """
+                SELECT order_item_id, product_id, sku_id, product_name,
+                       quantity, unit_price, line_amount
+                FROM order_items
+                WHERE order_id = %s
+                ORDER BY order_item_id
+                """,
+                (order["order_id"],),
+            )
+        return orders
+
+    def get_order(self, order_id: str) -> dict[str, Any] | None:
+        order = self.fetch_one(
+            """
+            SELECT o.order_id, o.user_id, u.username, u.full_name, o.order_status,
+                   o.payment_status, o.shipping_status, o.receipt_status,
+                   o.total_amount, o.currency, o.created_at, o.paid_at, o.completed_at,
+                   a.receiver_name, a.phone AS receiver_phone, a.province, a.city,
+                   a.district, a.address_line
+            FROM orders o
+            JOIN users u ON u.user_id = o.user_id
+            LEFT JOIN user_addresses a ON a.address_id = o.shipping_address_id
+            WHERE o.order_id = %s
+            """,
+            (order_id,),
+        )
+        if not order:
+            return None
+        order["items"] = self.fetch_all(
+            """
+            SELECT oi.order_item_id, oi.product_id, oi.sku_id, oi.product_name,
+                   oi.quantity, oi.unit_price, oi.line_amount, p.product_status,
+                   b.brand_name, c.category_name
+            FROM order_items oi
+            LEFT JOIN products p ON p.product_id = oi.product_id
+            LEFT JOIN brands b ON b.brand_id = p.brand_id
+            LEFT JOIN categories c ON c.category_id = p.category_id
+            WHERE oi.order_id = %s
+            ORDER BY oi.order_item_id
+            """,
+            (order_id,),
+        )
+        return order
+
+    def create_order(self, user_id: str, product_id: str, quantity: int = 1) -> dict[str, Any]:
+        product = ProductRepository().get_product(product_id)
+        if not product:
+            raise ValueError(f"Product {product_id} does not exist")
+        user = UserRepository().get_by_id(user_id)
+        if not user:
+            raise ValueError(f"User {user_id} does not exist")
+
+        default_address = self.fetch_one(
+            """
+            SELECT address_id
+            FROM user_addresses
+            WHERE user_id = %s AND status IN ('active', '正常')
+            ORDER BY is_default DESC, created_at DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        order_id = _numeric_id("ORD")
+        item_id = f"OI{uuid.uuid4().hex[:12].upper()}"
+        line_amount = float(product["price"]) * quantity
+        self.execute(
+            """
+            INSERT INTO orders (
+                order_id, user_id, shipping_address_id, order_status,
+                payment_status, shipping_status, receipt_status, total_amount,
+                currency, created_at, paid_at, completed_at, updated_at
+            )
+            VALUES (%s, %s, %s, '已支付', '已支付', '待发货', '未收货',
+                    %s, %s, NOW(), NOW(), NULL, NOW())
+            """,
+            (
+                order_id,
+                user_id,
+                default_address["address_id"] if default_address else None,
+                line_amount,
+                product["currency"],
+            ),
+        )
+        self.execute(
+            """
+            INSERT INTO order_items (
+                order_item_id, order_id, product_id, sku_id, product_name,
+                quantity, unit_price, line_amount, created_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            """,
+            (
+                item_id,
+                order_id,
+                product_id,
+                product["sku_id"],
+                product["product_name"],
+                quantity,
+                product["price"],
+                line_amount,
+            ),
+        )
+        shipment_id = f"SHP{uuid.uuid4().hex[:12].upper()}"
+        tracking_no = f"TRK{uuid.uuid4().hex[:12].upper()}"
+        self.execute(
+            """
+            INSERT INTO logistics_shipments (
+                shipment_id, order_id, carrier_id, tracking_no,
+                current_status, current_location, estimated_delivery_at,
+                shipped_at, delivered_at, created_at, updated_at
+            )
+            VALUES (%s, %s, 'CAR001', %s, '待发货', '商家仓库',
+                    DATE_ADD(NOW(), INTERVAL 3 DAY), NULL, NULL, NOW(), NOW())
+            """,
+            (shipment_id, order_id, tracking_no),
+        )
+        self.execute(
+            """
+            INSERT INTO logistics_tracking_events (
+                event_id, shipment_id, event_time, location, status, description
+            )
+            VALUES (%s, %s, NOW(), '商家仓库', '待发货',
+                    '订单已创建，等待仓库发货')
+            """,
+            (f"LTE{uuid.uuid4().hex[:12].upper()}", shipment_id),
+        )
+        created = self.get_order(order_id)
+        if not created:
+            raise RuntimeError("Order was inserted but could not be loaded")
+        return created
+
+
+class LogisticsRepository(MySQLRepository):
+    def get_by_order_id(self, order_id: str) -> dict[str, Any] | None:
+        shipment = self.fetch_one(
+            """
+            SELECT s.shipment_id, s.order_id, s.carrier_id, c.carrier_name,
+                   s.tracking_no, s.current_status, s.current_location,
+                   s.estimated_delivery_at, s.shipped_at, s.delivered_at, s.updated_at
+            FROM logistics_shipments s
+            JOIN carriers c ON c.carrier_id = s.carrier_id
+            WHERE s.order_id = %s
+            """,
+            (order_id,),
+        )
+        if not shipment:
+            return None
+        shipment["timeline"] = self.fetch_all(
+            """
+            SELECT event_id, event_time, location, status, description
+            FROM logistics_tracking_events
+            WHERE shipment_id = %s
+            ORDER BY event_time ASC, event_id ASC
+            """,
+            (shipment["shipment_id"],),
+        )
+        return shipment
+
+
+class RefundRepository(MySQLRepository):
+    def list_by_user(self, user_id: str) -> list[dict[str, Any]]:
+        return self.fetch_all(
+            """
+            SELECT r.refund_id, r.order_id, r.user_id, r.refund_reason,
+                   r.refund_amount, r.audit_status, r.refund_status,
+                   r.created_at, r.updated_at, o.order_status
+            FROM refunds r
+            JOIN orders o ON o.order_id = r.order_id
+            WHERE r.user_id = %s
+            ORDER BY r.created_at DESC
+            """,
+            (user_id,),
+        )
+
+    def get_by_order_id(self, order_id: str) -> dict[str, Any] | None:
+        return self.fetch_one(
+            """
+            SELECT refund_id, order_id, user_id, refund_reason, refund_amount,
+                   audit_status, refund_status, created_at, updated_at
+            FROM refunds
+            WHERE order_id = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (order_id,),
+        )
+
+    def create_refund(self, order_id: str, reason: str) -> dict[str, Any]:
+        order = OrderRepository().get_order(order_id)
+        if not order:
+            raise ValueError(f"Order {order_id} does not exist")
+
+        refund_id = f"REF{uuid.uuid4().hex[:12].upper()}"
+        self.execute(
+            """
+            INSERT INTO refunds (
+                refund_id, order_id, user_id, refund_reason, refund_amount,
+                audit_status, refund_status, created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, '待审核', '待处理', NOW(), NOW())
+            """,
+            (refund_id, order_id, order["user_id"], reason, order["total_amount"]),
+        )
+        created = self.get_by_order_id(order_id)
+        if not created:
+            raise RuntimeError("Refund was inserted but could not be loaded")
+        return created
+
+
+class ComplaintRepository(MySQLRepository):
+    def list_by_user(self, user_id: str) -> list[dict[str, Any]]:
+        complaints = self.fetch_all(
+            """
+            SELECT complaint_id, ticket_id, user_id, order_id, complaint_type,
+                   content, complaint_status, priority, created_at, updated_at, closed_at
+            FROM complaints
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+            """,
+            (user_id,),
+        )
+        for complaint in complaints:
+            complaint["escalations"] = self.fetch_all(
+                """
+                SELECT escalation_id, escalation_reason, escalated_to,
+                       supervisor_result, escalation_status, created_at, resolved_at
+                FROM complaint_escalations
+                WHERE complaint_id = %s
+                ORDER BY created_at DESC
+                """,
+                (complaint["complaint_id"],),
+            )
+        return complaints
+
+    def create_complaint(
+        self,
+        content: str,
+        complaint_type: str = "general",
+        order_id: str | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        if order_id and not user_id:
+            order = OrderRepository().get_order(order_id)
+            if order:
+                user_id = order["user_id"]
+        if not user_id:
+            user_id = self._default_user_id()
+
+        complaint_id = f"CMP{uuid.uuid4().hex[:12].upper()}"
+        ticket_id = f"TKT{uuid.uuid4().hex[:12].upper()}"
+        self.execute(
+            """
+            INSERT INTO complaints (
+                complaint_id, ticket_id, user_id, order_id, complaint_type,
+                content, complaint_status, priority, created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, '已提交', '普通', NOW(), NOW())
+            """,
+            (complaint_id, ticket_id, user_id, order_id, complaint_type, content),
+        )
+        self.execute(
+            """
+            INSERT INTO complaint_process_records (
+                record_id, complaint_id, handler, action, note, created_at
+            )
+            VALUES (%s, %s, '投诉 Agent', '已创建', %s, NOW())
+            """,
+            (f"CPR{uuid.uuid4().hex[:12].upper()}", complaint_id, "投诉已由 Agent 工具创建"),
+        )
+        created = self.get_by_id(complaint_id)
+        if not created:
+            raise RuntimeError("Complaint was inserted but could not be loaded")
+        return created
+
+    def get_by_id(self, complaint_id: str) -> dict[str, Any] | None:
+        complaint = self.fetch_one(
+            """
+            SELECT complaint_id, ticket_id, user_id, order_id, complaint_type,
+                   content, complaint_status, priority, created_at, updated_at, closed_at
+            FROM complaints
+            WHERE complaint_id = %s
+            """,
+            (complaint_id,),
+        )
+        if not complaint:
+            return None
+        complaint["process_records"] = self.fetch_all(
+            """
+            SELECT record_id, handler, action, note, created_at
+            FROM complaint_process_records
+            WHERE complaint_id = %s
+            ORDER BY created_at ASC
+            """,
+            (complaint_id,),
+        )
+        complaint["escalations"] = self.fetch_all(
+            """
+            SELECT escalation_id, escalation_reason, escalated_to, supervisor_result,
+                   escalation_status, created_at, resolved_at
+            FROM complaint_escalations
+            WHERE complaint_id = %s
+            ORDER BY created_at ASC
+            """,
+            (complaint_id,),
+        )
+        return complaint
+
+    def get_by_any_id(self, ref_id: str) -> dict[str, Any] | None:
+        """按投诉号或工单号查询投诉（跟进场景用户可能给任一编号）。"""
+        complaint = self.get_by_id(ref_id)
+        if complaint:
+            return complaint
+        row = self.fetch_one(
+            "SELECT complaint_id FROM complaints WHERE ticket_id = %s",
+            (ref_id,),
+        )
+        if row:
+            return self.get_by_id(row["complaint_id"])
+        return None
+
+    def _default_user_id(self) -> str:
+        row = self.fetch_one("SELECT user_id FROM users ORDER BY created_at ASC LIMIT 1")
+        if not row:
+            raise ValueError("No default user exists for complaint creation")
+        return row["user_id"]
+
+
+class AgentAuditRepository(MySQLRepository):
+    def list_recent(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.fetch_all(
+            """
+            SELECT audit_id, agent_name, tool_name, user_request,
+                   execution_result, success, workflow_id, session_id, executed_at
+            FROM agent_audit_logs
+            ORDER BY executed_at DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        for row in rows:
+            row["execution_result"] = json_loads(row.get("execution_result"), {})
+        return rows
+
+    def record(
+        self,
+        tool_name: str,
+        user_request: str,
+        execution_result: dict[str, Any],
+        agent_name: str = "ToolRuntime",
+        workflow_id: str | None = None,
+        session_id: str | None = None,
+        success: bool = True,
+    ) -> None:
+        self.execute(
+            """
+            INSERT INTO agent_audit_logs (
+                audit_id, agent_name, tool_name, user_request, execution_result,
+                success, workflow_id, session_id, executed_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            """,
+            (
+                f"AUD{uuid.uuid4().hex[:12].upper()}",
+                agent_name,
+                tool_name,
+                user_request,
+                json_dumps(execution_result),
+                1 if success else 0,
+                workflow_id,
+                session_id,
+            ),
+        )
+
+
+class HumanAgentStatusRepository(MySQLRepository):
+    def get_status(self, team_name: str = "general_service") -> dict[str, Any] | None:
+        return self.fetch_one(
+            """
+            SELECT status_id, team_name, online_agents, queue_count,
+                   estimated_wait_minutes, working_hours, status, updated_at
+            FROM human_agent_status
+            WHERE team_name = %s AND status IN ('active', '正常')
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (team_name,),
+        )
+
+
+class WorkflowRuntimeRepository(MySQLRepository):
+    def list_recent(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.fetch_all(
+            """
+            SELECT workflow_id, current_state, current_agent, fsm_state,
+                   slot_state, checkpoint_info, resume_info, created_at, updated_at
+            FROM workflow_runtime_records
+            ORDER BY updated_at DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        for row in rows:
+            for field in ("fsm_state", "slot_state", "checkpoint_info", "resume_info"):
+                row[field] = json_loads(row.get(field), {})
+        return rows
+
+    def upsert_runtime_record(
+        self,
+        workflow_id: str,
+        current_state: str,
+        current_agent: str,
+        fsm_state: dict[str, Any] | None = None,
+        slot_state: dict[str, Any] | None = None,
+        checkpoint_info: dict[str, Any] | None = None,
+        resume_info: dict[str, Any] | None = None,
+    ) -> None:
+        self.execute(
+            """
+            INSERT INTO workflow_runtime_records (
+                workflow_id, current_state, current_agent, fsm_state, slot_state,
+                checkpoint_info, resume_info, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+            ON DUPLICATE KEY UPDATE
+                current_state = VALUES(current_state),
+                current_agent = VALUES(current_agent),
+                fsm_state = VALUES(fsm_state),
+                slot_state = VALUES(slot_state),
+                checkpoint_info = VALUES(checkpoint_info),
+                resume_info = VALUES(resume_info),
+                updated_at = NOW()
+            """,
+            (
+                workflow_id,
+                current_state,
+                current_agent,
+                json_dumps(fsm_state or {}),
+                json_dumps(slot_state or {}),
+                json_dumps(checkpoint_info or {}),
+                json_dumps(resume_info or {}),
+            ),
+        )
+
+    def get_runtime_record(self, workflow_id: str) -> dict[str, Any] | None:
+        record = self.fetch_one(
+            """
+            SELECT workflow_id, current_state, current_agent, fsm_state, slot_state,
+                   checkpoint_info, resume_info, created_at, updated_at
+            FROM workflow_runtime_records
+            WHERE workflow_id = %s
+            """,
+            (workflow_id,),
+        )
+        if not record:
+            return None
+        for field in ("fsm_state", "slot_state", "checkpoint_info", "resume_info"):
+            record[field] = json_loads(record.get(field), {})
+        return record
