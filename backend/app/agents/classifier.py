@@ -43,6 +43,8 @@ from app.agents.complaint_intent import (
     is_followup_request,
     user_visible_input as _user_visible_input,
 )
+# 复用 CouponFlow 的"当前用户优惠券"提示词作为单一事实源，避免路由与 Flow 判断漂移。
+from app.flows.coupon import _CURRENT_COUPON_HINTS
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +204,12 @@ def _classify_business_intent_by_rule(user_input: str) -> IntentType | None:
       return IntentType.TICKET
     if "本轮任务：转人工" in user_input or "humantransferagent" in text or "transfer_human" in text:
       return IntentType.HUMAN_TRANSFER
+
+    # 当前用户"我有哪些优惠券"类问题：命中提示词则路由到 CouponFlow 读真实优惠券数据，
+    # 必须先于知识库规则（优惠券 + 有哪些会误命中 KNOWLEDGE_QUERY）。
+    # 通用规则问题（"优惠券怎么用"/"满减怎么算"）不含这些提示词，仍落到知识库/LLM。
+    if any(hint in visible_input for hint in _CURRENT_COUPON_HINTS):
+      return IntentType.COUPON_QUERY
 
     return None
 
