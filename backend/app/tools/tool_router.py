@@ -47,22 +47,25 @@ def _extract_order_id(text: str) -> str | None:
     """从文本中提取订单号。
 
     优先级：
-    1. 明确标注的订单号（订单号: xxx / order id: xxx，需显式分隔符）
-    2. 形如 ORD_xxx 的业务订单号
-    3. 不把任意裸数字当订单号，避免手机号误入；也不允许 OrderAgent/query_order
-       这类标识符里的 order 子串触发匹配
+    1. 系统上下文标注的"本轮优先处理订单号"
+    2. 明确标注的订单号（订单号: xxx / order id: xxx，需显式"号"或 id 标记；
+       "订单ORD_xxx" 紧邻写法也接受）
+    3. 形如 ORD_xxx 的业务订单号（仅大写 ORD 前缀，避免 OrderAgent/ordered
+       这类英文单词里的子串误触发）
+    4. 不把任意裸数字当订单号，避免手机号误入
     """
-    explicit_patterns = [
-        r'订单号?[：:\s]*([A-Za-z0-9_\-]{4,40})',
-        r'\border[_\s]?id\b[：:\s]+([A-Za-z0-9_\-]{4,40})',
-        r'本轮优先处理订单号[：:\s]*([A-Za-z0-9_\-]{4,40})',
+    explicit_patterns: list[tuple[str, int]] = [
+        (r'本轮优先处理订单号[：:\s]*([A-Za-z0-9_\-]{4,40})', 0),
+        (r'订单号[：:\s]*([A-Za-z0-9_\-]{4,40})', 0),
+        (r'订单(ORD[A-Za-z0-9_\-]{4,40})', 0),
+        (r'\border[_\s]?id\b[：:\s]+([A-Za-z0-9_\-]{4,40})', re.IGNORECASE),
     ]
-    for pattern in explicit_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
+    for pattern, flags in explicit_patterns:
+        match = re.search(pattern, text, flags)
         if match:
             return match.group(1)
 
-    ord_match = re.search(r'\b((?:ORD|ord)[A-Za-z0-9_\-]{4,40})\b', text, re.IGNORECASE)
+    ord_match = re.search(r'\b(ORD[A-Za-z0-9_\-]{4,40})\b', text)
     if ord_match:
         return ord_match.group(1)
 

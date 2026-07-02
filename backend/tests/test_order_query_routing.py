@@ -22,6 +22,18 @@ class OrderQueryRoutingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan.tool_name, "query_order")
         self.assertEqual(plan.params["order_id"], "ORD_DEMO_001")
 
+    async def test_order_query_without_order_id_does_not_call_even_with_agent_words(self):
+        message = (
+            "帮我看看这个订单现在是什么状态？\n\n"
+            "[系统补充上下文 - 不要把本段当成用户原话]\n"
+            "本轮任务：订单查询。请调用 OrderAgent / query_order 处理。\n"
+            "当前登录用户：USRD13243F290A7 / 小 / 13560569291"
+        )
+        plan = await select_tool("order_query", message, history=[])
+        self.assertFalse(plan.should_call)
+        self.assertNotIn("order_id", plan.params)
+        self.assertIn("缺少订单号", plan.reason)
+
 
 if __name__ == "__main__":
     unittest.main()
