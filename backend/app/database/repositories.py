@@ -692,6 +692,70 @@ class HumanAgentStatusRepository(MySQLRepository):
         )
 
 
+class HumanTransferRepository(MySQLRepository):
+    """转人工请求仓储：真正把用户加入人工队列（写库 + 队列人数 +1）。
+
+    与只读的 HumanAgentStatusRepository 区分：后者是队列状态快照，
+    这里负责"执行转接"这个动作本身——落一条排队记录并把 queue_count 递增，
+    使 transfer_human 从"假成功"变为真正达成用户目的。
+    """
+
+    def create_transfer_request(
+        self,
+        team_name: str,
+        reason: str,
+        user_id: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        transfer_id = f"HTR{uuid.uuid4().hex[:12].upper()}"
+        # 队列人数原子 +1，再读回递增后的真实排队人数作为该用户排队位次。
+        # 单条 UPDATE 保证并发下 queue_count 不丢失更新。
+        affected = self.execute(
+            """
+            UPDATE human_agent_status
+            SET queue_count = queue_count + 1, updated_at = NOW()
+            WHERE team_name = %s AND status IN ('active', '正常')
+            """,
+            (team_name,),
+        )
+        if not affected:
+            raise ValueError(f"No active human agent queue for team '{team_name}'")
+
+        status = HumanAgentStatusRepository().get_status(team_name)
+        if not status:
+            raise RuntimeError("Queue was incremented but status could not be reloaded")
+        queue_position = status["queue_count"]
+
+        self.execute(
+            """
+            INSERT INTO human_transfer_requests (
+                transfer_id, team_name, user_id, session_id, reason,
+                queue_position, transfer_status, created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, 'queued', NOW(), NOW())
+            """,
+            (transfer_id, team_name, user_id, session_id, reason, queue_position),
+        )
+        created = self.get_by_id(transfer_id)
+        if not created:
+            raise RuntimeError("Transfer request was inserted but could not be loaded")
+        created["estimated_wait_minutes"] = status["estimated_wait_minutes"]
+        created["online_agents"] = status["online_agents"]
+        created["working_hours"] = status["working_hours"]
+        return created
+
+    def get_by_id(self, transfer_id: str) -> dict[str, Any] | None:
+        return self.fetch_one(
+            """
+            SELECT transfer_id, team_name, user_id, session_id, reason,
+                   queue_position, transfer_status, created_at, updated_at
+            FROM human_transfer_requests
+            WHERE transfer_id = %s
+            """,
+            (transfer_id,),
+        )
+
+
 class WorkflowRuntimeRepository(MySQLRepository):
     def list_recent(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.fetch_all(
