@@ -321,6 +321,27 @@ CREATE TABLE IF NOT EXISTS human_transfer_requests (
   INDEX idx_transfer_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 主动服务事件：业务状态变化时"落"一条事件（事件驱动），带 dedup_key 去重、
+-- unread/read 状态，让前端轮询到的是"新发生且未读"的提醒，而非每次重算的快照。
+CREATE TABLE IF NOT EXISTS proactive_events (
+  event_id VARCHAR(32) PRIMARY KEY,
+  user_id VARCHAR(32) NOT NULL,
+  event_type VARCHAR(64) NOT NULL,
+  severity VARCHAR(16) NOT NULL DEFAULT 'medium',
+  title VARCHAR(128) NOT NULL,
+  description VARCHAR(512) NOT NULL,
+  action_prompt VARCHAR(512) NOT NULL,
+  order_id VARCHAR(32) NULL,
+  related_id VARCHAR(64) NULL,
+  dedup_key VARCHAR(128) NOT NULL,
+  event_status VARCHAR(16) NOT NULL DEFAULT 'unread',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_proactive_dedup (user_id, dedup_key),
+  INDEX idx_proactive_user_status (user_id, event_status),
+  INDEX idx_proactive_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS agent_audit_logs (
   audit_id VARCHAR(32) PRIMARY KEY,
   agent_name VARCHAR(64) NOT NULL,

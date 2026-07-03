@@ -5,6 +5,7 @@ from typing import Any
 
 from app.database.connection import DatabaseAccessError
 from app.database.repositories import AgentAuditRepository, HumanTransferRepository
+from app.services.proactive import emit_proactive_event
 from app.tools.base_tool import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -73,5 +74,17 @@ class HumanTransferTool(BaseTool):
             )
         except Exception as exc:
             logger.warning("[HumanTransferTool] audit log failed: %s", exc)
+
+        # 动作即事件：转接发生后落一条主动事件，用户可在服务面板追踪排队进度。
+        emit_proactive_event(
+            user_id=kwargs.get("user_id"),
+            event_type="human_transfer_queued",
+            severity="medium",
+            title="已为你加入人工队列",
+            description=f"当前排队第 {transfer['queue_position']} 位，预计等待 {transfer['estimated_wait_minutes']} 分钟。",
+            action_prompt="帮我看看人工客服还要多久，需要的话先帮我把问题整理成摘要",
+            dedup_key=f"human-transfer:{transfer['transfer_id']}",
+            related_id=transfer["transfer_id"],
+        )
 
         return ToolResult(success=True, data=result_data, tool_name=self.name)

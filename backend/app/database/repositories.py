@@ -756,6 +756,104 @@ class HumanTransferRepository(MySQLRepository):
         )
 
 
+class ProactiveEventRepository(MySQLRepository):
+    """主动服务事件仓储：业务状态变化时落一条持久化事件。
+
+    与只读的 insight 快照区分：insight 每次都对当前数据重算，无法感知"变化"、
+    也分不清新旧；这里以 (user_id, dedup_key) 去重落库，带 unread/read 状态，
+    使系统从"进店看板"升级为"事件驱动的主动提醒"。
+    """
+
+    def emit(
+        self,
+        user_id: str,
+        event_type: str,
+        severity: str,
+        title: str,
+        description: str,
+        action_prompt: str,
+        dedup_key: str,
+        order_id: str | None = None,
+        related_id: str | None = None,
+    ) -> dict[str, Any]:
+        """落一条主动事件。同一 (user_id, dedup_key) 已存在则不重复插入（去重防刷屏）。"""
+        existing = self.fetch_one(
+            """
+            SELECT event_id FROM proactive_events
+            WHERE user_id = %s AND dedup_key = %s
+            """,
+            (user_id, dedup_key),
+        )
+        if existing:
+            reloaded = self.get_by_id(existing["event_id"])
+            if reloaded:
+                return reloaded
+
+        event_id = f"PEV{uuid.uuid4().hex[:12].upper()}"
+        self.execute(
+            """
+            INSERT INTO proactive_events (
+                event_id, user_id, event_type, severity, title, description,
+                action_prompt, order_id, related_id, dedup_key, event_status,
+                created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'unread', NOW(), NOW())
+            """,
+            (
+                event_id, user_id, event_type, severity, title, description,
+                action_prompt, order_id, related_id, dedup_key,
+            ),
+        )
+        created = self.get_by_id(event_id)
+        if not created:
+            raise RuntimeError("Proactive event was inserted but could not be loaded")
+        return created
+
+    def get_by_id(self, event_id: str) -> dict[str, Any] | None:
+        return self.fetch_one(
+            """
+            SELECT event_id, user_id, event_type, severity, title, description,
+                   action_prompt, order_id, related_id, dedup_key, event_status,
+                   created_at, updated_at
+            FROM proactive_events
+            WHERE event_id = %s
+            """,
+            (event_id,),
+        )
+
+    def list_for_user(
+        self,
+        user_id: str,
+        statuses: tuple[str, ...] = ("unread", "read"),
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        if not statuses:
+            return []
+        placeholders = ", ".join(["%s"] * len(statuses))
+        return self.fetch_all(
+            f"""
+            SELECT event_id, user_id, event_type, severity, title, description,
+                   action_prompt, order_id, related_id, dedup_key, event_status,
+                   created_at, updated_at
+            FROM proactive_events
+            WHERE user_id = %s AND event_status IN ({placeholders})
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (user_id, *statuses, limit),
+        )
+
+    def mark_read(self, event_id: str) -> None:
+        self.execute(
+            """
+            UPDATE proactive_events
+            SET event_status = 'read', updated_at = NOW()
+            WHERE event_id = %s
+            """,
+            (event_id,),
+        )
+
+
 class WorkflowRuntimeRepository(MySQLRepository):
     def list_recent(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.fetch_all(
