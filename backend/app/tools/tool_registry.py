@@ -190,6 +190,7 @@ def init_tools() -> None:
     from app.tools.implementations.human_transfer_tool import HumanTransferTool
     from app.tools.implementations.inventory_tool import InventoryTool
     from app.tools.implementations.coupon_query_tool import CouponQueryTool
+    from app.tools.implementations.recommend_tool import RecommendTool
 
     # 原有工具
     tool_registry.register(LogisticsTool, intents=["logistics_query"])
@@ -203,6 +204,7 @@ def init_tools() -> None:
     tool_registry.register(HumanTransferTool, intents=["human_transfer", "general"])
     tool_registry.register(InventoryTool, intents=["inventory_query", "product_query"])
     tool_registry.register(CouponQueryTool, intents=["coupon_query"])
+    tool_registry.register(RecommendTool, intents=["product_query"])
 
     logger.info(f"工具注册完成，已注册: {tool_registry.list_registered()}")
     logger.info(f"意图映射: {tool_registry.list_intent_mappings()}")

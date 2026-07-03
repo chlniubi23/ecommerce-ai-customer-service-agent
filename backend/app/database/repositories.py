@@ -286,6 +286,129 @@ class ProductRepository(MySQLRepository):
         return self.get_by_sku_or_name(product_name)
 
 
+class ProductRecommendationRepository(MySQLRepository):
+    """基于用户真实购买历史的个性化推荐。
+
+    区别于框架空转：这里从用户已下单的 order_items 反推偏好品类/品牌，
+    再在同品类里找"有货、未买过"的商品推荐，并给出可解释的推荐理由。
+    没有历史时兜底为热门有货商品，保证任何用户都有推荐可给。
+    """
+
+    def _purchased_products(self, user_id: str) -> list[dict[str, Any]]:
+        return self.fetch_all(
+            """
+            SELECT oi.product_id, oi.product_name, p.category_id, c.category_name,
+                   p.brand_id, b.brand_name, COUNT(*) AS buy_count
+            FROM orders o
+            JOIN order_items oi ON oi.order_id = o.order_id
+            LEFT JOIN products p ON p.product_id = oi.product_id
+            LEFT JOIN categories c ON c.category_id = p.category_id
+            LEFT JOIN brands b ON b.brand_id = p.brand_id
+            WHERE o.user_id = %s
+            GROUP BY oi.product_id, oi.product_name, p.category_id, c.category_name,
+                     p.brand_id, b.brand_name
+            """,
+            (user_id,),
+        )
+
+    def recommend_for_user(self, user_id: str, limit: int = 5) -> dict[str, Any]:
+        purchased = self._purchased_products(user_id)
+        purchased_ids = [row["product_id"] for row in purchased if row.get("product_id")]
+        preferred_categories = sorted(
+            {(row["category_id"], row.get("category_name")) for row in purchased if row.get("category_id")},
+            key=lambda item: str(item[1] or ""),
+        )
+        preferred_brands = sorted(
+            {(row["brand_id"], row.get("brand_name")) for row in purchased if row.get("brand_id")},
+            key=lambda item: str(item[1] or ""),
+        )
+        category_ids = [cid for cid, _ in preferred_categories]
+
+        recommendations: list[dict[str, Any]] = []
+        if category_ids:
+            recommendations = self._candidates_in_categories(category_ids, purchased_ids, limit)
+
+        # 兜底：无历史 / 同品类没货时，用热门有货商品补齐，保证不空转。
+        if len(recommendations) < limit:
+            fallback = self._popular_in_stock(
+                exclude_ids=purchased_ids + [r["product_id"] for r in recommendations],
+                limit=limit - len(recommendations),
+            )
+            for row in fallback:
+                row.setdefault("reason", "近期热门且有货，值得看看")
+            recommendations.extend(fallback)
+
+        return {
+            "user_id": user_id,
+            "has_history": bool(purchased_ids),
+            "preferred_categories": [name for _, name in preferred_categories if name],
+            "preferred_brands": [name for _, name in preferred_brands if name],
+            "recommendations": recommendations[:limit],
+        }
+
+    def _candidates_in_categories(
+        self, category_ids: list[str], exclude_ids: list[str], limit: int
+    ) -> list[dict[str, Any]]:
+        cat_placeholders = ", ".join(["%s"] * len(category_ids))
+        exclude_clause = ""
+        params: list[Any] = list(category_ids)
+        if exclude_ids:
+            exclude_clause = f"AND p.product_id NOT IN ({', '.join(['%s'] * len(exclude_ids))})"
+            params.extend(exclude_ids)
+        params.append(limit)
+        rows = self.fetch_all(
+            f"""
+            SELECT p.product_id, p.product_name, p.price, p.currency,
+                   b.brand_name, c.category_name,
+                   i.available_quantity, i.inventory_status
+            FROM products p
+            LEFT JOIN brands b ON b.brand_id = p.brand_id
+            LEFT JOIN categories c ON c.category_id = p.category_id
+            LEFT JOIN inventory i ON i.sku_id = p.sku_id
+            WHERE p.category_id IN ({cat_placeholders})
+              {exclude_clause}
+              AND COALESCE(i.available_quantity, 0) > 0
+            ORDER BY i.available_quantity DESC, p.updated_at DESC
+            LIMIT %s
+            """,
+            tuple(params),
+        )
+        for row in rows:
+            row["in_stock"] = True
+            row["reason"] = f"和你买过的「{row.get('category_name') or '同类'}」商品同品类，当前有货"
+        return rows
+
+    def _popular_in_stock(self, exclude_ids: list[str], limit: int) -> list[dict[str, Any]]:
+        if limit <= 0:
+            return []
+        exclude_clause = ""
+        params: list[Any] = []
+        if exclude_ids:
+            exclude_clause = f"WHERE p.product_id NOT IN ({', '.join(['%s'] * len(exclude_ids))}) AND COALESCE(i.available_quantity, 0) > 0"
+            params.extend(exclude_ids)
+        else:
+            exclude_clause = "WHERE COALESCE(i.available_quantity, 0) > 0"
+        params.append(limit)
+        rows = self.fetch_all(
+            f"""
+            SELECT p.product_id, p.product_name, p.price, p.currency,
+                   b.brand_name, c.category_name,
+                   i.available_quantity, i.inventory_status
+            FROM products p
+            LEFT JOIN brands b ON b.brand_id = p.brand_id
+            LEFT JOIN categories c ON c.category_id = p.category_id
+            LEFT JOIN inventory i ON i.sku_id = p.sku_id
+            {exclude_clause}
+            ORDER BY i.available_quantity DESC, p.updated_at DESC
+            LIMIT %s
+            """,
+            tuple(params),
+        )
+        for row in rows:
+            row["in_stock"] = True
+        return rows
+
+
 class OrderRepository(MySQLRepository):
     def list_user_orders(self, user_id: str) -> list[dict[str, Any]]:
         orders = self.fetch_all(

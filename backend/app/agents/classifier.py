@@ -45,6 +45,8 @@ from app.agents.complaint_intent import (
 )
 # 复用 CouponFlow 的"当前用户优惠券"提示词作为单一事实源，避免路由与 Flow 判断漂移。
 from app.flows.coupon import _CURRENT_COUPON_HINTS
+# 复用 ProductFlow 的推荐提示词，路由与 Flow 判断保持一致。
+from app.flows.product import _RECOMMEND_HINTS
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +212,12 @@ def _classify_business_intent_by_rule(user_input: str) -> IntentType | None:
     # 通用规则问题（"优惠券怎么用"/"满减怎么算"）不含这些提示词，仍落到知识库/LLM。
     if any(hint in visible_input for hint in _CURRENT_COUPON_HINTS):
       return IntentType.COUPON_QUERY
+
+    # 个性化推荐类问题（"根据我买过的推荐""有什么值得入手"）路由到 ProductFlow，
+    # 由其 recommend_products 工具结合真实购买历史给推荐。用可见文本判断，
+    # 复用 ProductFlow 的提示词作为单一事实源，避免路由与 Flow 判断漂移。
+    if any(hint in visible_input for hint in _RECOMMEND_HINTS):
+      return IntentType.PRODUCT_QUERY
 
     return None
 
