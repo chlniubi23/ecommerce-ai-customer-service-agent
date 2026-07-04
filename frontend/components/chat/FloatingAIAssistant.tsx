@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import DebugPanel from "@/components/debug/DebugPanel";
-import { commerceApi, getStoredUserId, type AgentContext, type AssistantEvent, type AssistantInsight, type AssistantInsights, type AssistantTaskBoard, type Complaint, type DemoUser, type Order, type Refund } from "@/services/commerce";
+import { commerceApi, getStoredUserId, type AgentContext, type AssistantEvent, type AssistantInsight, type AssistantInsights, type Complaint, type DemoUser, type Order, type Refund } from "@/services/commerce";
 import { sendChatMessage } from "@/services/chat";
 import { createUserMessage, type Message } from "@/types/message";
 import type { AgentTraceData } from "@/types/trace";
@@ -34,7 +34,8 @@ type AgentCapability =
   | "knowledge"
   | "summary";
 
-type AssistantView = "briefing" | "tasks" | "chat" | "trace";
+// 面板激进合并：概览/任务与对话高度重复，合并为"对话"(主页，含待办条) + "Agent 面板"两页。
+type AssistantView = "chat" | "trace";
 
 const guestSuggestionBatches = [
   ["618 有哪些优惠活动？", "新用户首单有什么福利？", "退货退款规则是什么？", "商品发货一般多久？"],
@@ -266,14 +267,11 @@ export default function FloatingAIAssistant() {
   const [contextRequest, setContextRequest] = useState<AssistantContextRequest>({});
   const [snapshot, setSnapshot] = useState<ServiceSnapshot>({ orders: [], refunds: [], complaints: [] });
   const [insights, setInsights] = useState<AssistantInsights | null>(null);
-  const [taskBoard, setTaskBoard] = useState<AssistantTaskBoard | null>(null);
   const [events, setEvents] = useState<AssistantEvent[]>([]);
   const [dismissedEvents, setDismissedEvents] = useState<string[]>([]);
   const [trace, setTrace] = useState<AgentTraceData | null>(null);
   const [traceStore, setTraceStore] = useState<{ audits: unknown[]; workflows: unknown[] }>({ audits: [], workflows: [] });
-  const [showTrace, setShowTrace] = useState(false);
-  const [assistantView, setAssistantView] = useState<AssistantView>("briefing");
-  const [taskOrderFilter, setTaskOrderFilter] = useState<string | null>(null);
+  const [assistantView, setAssistantView] = useState<AssistantView>("chat");
   const [showOrderPicker, setShowOrderPicker] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -308,7 +306,6 @@ export default function FloatingAIAssistant() {
       setUser(null);
       setSnapshot({ orders: [], refunds: [], complaints: [] });
       setInsights(null);
-      setTaskBoard(null);
       setEvents([]);
       if (activeContext.product_id || activeContext.order_id) {
         commerceApi.agentContext(activeContext).then(setContext).catch(() => setContext({}));
@@ -321,7 +318,6 @@ export default function FloatingAIAssistant() {
     commerceApi.getUser(userId).then(setUser).catch(() => setUser(null));
     commerceApi.agentContext({ user_id: userId, ...activeContext }).then(setContext).catch(() => setContext({}));
     commerceApi.agentInsights(userId).then(setInsights).catch(() => setInsights(null));
-    commerceApi.agentTasks(userId).then(setTaskBoard).catch(() => setTaskBoard(null));
     commerceApi.agentEvents(userId).then((data) => setEvents(data.events)).catch(() => setEvents([]));
     Promise.all([
       commerceApi.orders(userId).catch(() => []),
@@ -336,18 +332,16 @@ export default function FloatingAIAssistant() {
   }, [user]);
 
   useEffect(() => {
-    if (!open) setAssistantView("briefing");
+    if (!open) setAssistantView("chat");
   }, [open]);
 
   useEffect(() => {
     const userId = contextRequest.user_id || getStoredUserId();
     if (!userId) return;
     const poll = () => {
+      // 主动服务轮询：每 30s 拉取"未读"主动事件（事件驱动 + 去重后端已处理）。
       commerceApi.agentEvents(userId)
         .then((data) => setEvents(data.events))
-        .catch(() => undefined);
-      commerceApi.agentTasks(userId)
-        .then(setTaskBoard)
         .catch(() => undefined);
     };
     const timer = window.setInterval(poll, 30000);
@@ -361,22 +355,7 @@ export default function FloatingAIAssistant() {
   const suggestionBatches = user ? signedInSuggestionBatches : guestSuggestionBatches;
   const suggestions = suggestionBatches[suggestionPage % suggestionBatches.length];
   const visibleInsights = insights?.insights || [];
-  const visibleQuickActions = insights?.quick_actions || [];
   const visibleEvents = events.filter((event) => !dismissedEvents.includes(event.event_id));
-  const activeTasks = taskBoard?.tasks || [];
-
-  const tasksByOrder = useMemo(() => {
-    const grouped: Record<string, typeof activeTasks> = {};
-    for (const task of activeTasks) {
-      const orderId = task.description?.match(/ORD[A-Z0-9_]+/)?.[0] || task.title?.match(/ORD[A-Z0-9_]+/)?.[0] || "其他";
-      if (!grouped[orderId]) grouped[orderId] = [];
-      grouped[orderId].push(task);
-    }
-    return grouped;
-  }, [activeTasks]);
-
-  const taskOrderIds = useMemo(() => Object.keys(tasksByOrder), [tasksByOrder]);
-  const filteredTasks = taskOrderFilter ? (tasksByOrder[taskOrderFilter] || []) : activeTasks;
 
   const resetConversation = useCallback(() => {
     setMessages([]);
@@ -384,8 +363,7 @@ export default function FloatingAIAssistant() {
     setError("");
     setLoading(false);
     setTrace(null);
-    setShowTrace(false);
-    setAssistantView("briefing");
+    setAssistantView("chat");
     setSessionId(createFloatingSessionId());
   }, []);
 
@@ -444,31 +422,6 @@ export default function FloatingAIAssistant() {
     void send(event.assistant_prompt);
   }, [send]);
 
-  const runTaskStep = useCallback((taskId: string, prompt: string) => {
-    const userId = contextRequest.user_id || getStoredUserId();
-    if (userId) {
-      commerceApi.updateAgentTask(userId, taskId, "start").catch(() => undefined);
-    }
-    setAssistantView("chat");
-    void send(prompt);
-  }, [contextRequest.user_id, send]);
-
-  const completeTask = useCallback((taskId: string) => {
-    const userId = contextRequest.user_id || getStoredUserId();
-    if (!userId) return;
-    commerceApi.updateAgentTask(userId, taskId, "complete")
-      .then((updated) => {
-        setTaskBoard((board) => {
-          if (!board) return board;
-          return {
-            ...board,
-            tasks: board.tasks.map((task) => task.task_id === taskId ? updated : task),
-          };
-        });
-      })
-      .catch(() => undefined);
-  }, [contextRequest.user_id]);
-
   const renderEventBanner = () => visibleEvents.length > 0 && (
     <div className="rounded-2xl border border-orange-100 bg-orange-50/80 p-3 shadow-sm">
       <div className="flex items-start gap-3">
@@ -481,103 +434,6 @@ export default function FloatingAIAssistant() {
             <button type="button" onClick={() => setDismissedEvents((items) => [...items, visibleEvents[0].event_id])} className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-slate-500">Later</button>
           </div>
         </div>
-      </div>
-    </div>
-  );
-
-  const renderBriefingPage = () => (
-    <div className="space-y-3">
-      {renderEventBanner()}
-      {user && insights ? (
-        <>
-          <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-black text-slate-950">服务概况</div>
-              <button type="button" onClick={() => send("帮我总结当前订单、物流、退款和投诉情况。")} className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-bold text-white">总结</button>
-            </div>
-            <p className="mt-1.5 text-xs leading-5 text-slate-500">{insights.summary}</p>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-xl bg-slate-50 p-2.5"><div className="text-lg font-black text-slate-950">{insights.counts.active_orders}</div><div className="text-[10px] text-slate-400">订单</div></div>
-              <div className="rounded-xl bg-slate-50 p-2.5"><div className="text-lg font-black text-slate-950">{insights.counts.open_refunds}</div><div className="text-[10px] text-slate-400">退款</div></div>
-              <div className="rounded-xl bg-slate-50 p-2.5"><div className="text-lg font-black text-slate-950">{insights.counts.open_complaints}</div><div className="text-[10px] text-slate-400">投诉</div></div>
-            </div>
-          </section>
-          {visibleInsights.length > 0 && (
-            <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
-              <div className="text-xs font-black text-slate-950 mb-2">待处理事项</div>
-              <div className="grid gap-1.5">
-                {visibleInsights.slice(0, 4).map((insight) => (
-                  <button key={insight.insight_id} type="button" onClick={() => openInsight(insight)} className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-50 bg-slate-50 px-3 py-2 text-left transition hover:border-blue-200 hover:bg-blue-50/70">
-                    <span className="min-w-0 flex-1 truncate text-xs font-bold text-slate-800">{insight.title}</span>
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${insight.severity === "urgent" ? "bg-red-100 text-red-700" : insight.severity === "high" ? "bg-orange-100 text-orange-700" : "bg-slate-200 text-slate-600"}`}>{insight.action_label}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-        </>
-      ) : (
-        <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
-          <div className="text-sm font-black text-slate-950">登录获取专属服务</div>
-          <p className="mt-1.5 text-xs leading-5 text-slate-500">登录后可查询订单、物流、退款等信息。</p>
-          <div className="mt-3 flex gap-2"><Link href="/login" className="rounded-full bg-slate-900 px-4 py-1.5 text-xs font-bold text-white">登录</Link><Link href="/register" className="rounded-full bg-blue-50 px-4 py-1.5 text-xs font-bold text-blue-700">注册</Link></div>
-        </section>
-      )}
-      <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
-        <div className="text-xs font-black text-slate-950 mb-2">快捷操作</div>
-        <div className="grid gap-1.5">
-          {(visibleQuickActions.length ? visibleQuickActions : [{ label: "整理待办", prompt: "帮我总结未完成事项" }, { label: "查物流", prompt: "我的物流到哪里了？" }, { label: "售后进度", prompt: "我最近有哪些售后进度？" }, { label: "找人工", prompt: "帮我找人工客服" }]).map((action) => (
-            <button key={action.label} type="button" onClick={() => send(action.prompt)} className="rounded-xl border border-blue-50 bg-white px-3 py-2 text-left text-xs font-bold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700">{action.label}</button>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-
-  const renderTasksPage = () => (
-    <div className="space-y-3">
-      <section className="rounded-2xl border border-indigo-100 bg-white p-3 shadow-sm">
-        <div className="flex items-center justify-between gap-2">
-          <div className="text-sm font-black text-slate-950">任务面板</div>
-          <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700">{activeTasks.length} 项</span>
-        </div>
-        <p className="mt-1 text-[11px] leading-4 text-slate-500">{taskBoard?.completion_policy || "选择订单查看对应任务"}</p>
-      </section>
-
-      {taskOrderIds.length > 1 && (
-        <div className="flex flex-wrap gap-1.5">
-          <button type="button" onClick={() => setTaskOrderFilter(null)} className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition ${!taskOrderFilter ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-500 hover:bg-slate-100"}`}>全部</button>
-          {taskOrderIds.map((orderId) => (
-            <button key={orderId} type="button" onClick={() => setTaskOrderFilter(orderId)} className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition ${taskOrderFilter === orderId ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-500 hover:bg-slate-100"}`}>{orderId === "其他" ? "其他" : orderId.slice(-6)}</button>
-          ))}
-        </div>
-      )}
-
-      {filteredTasks.length === 0 && (
-        <div className="rounded-2xl bg-slate-50 p-6 text-center text-xs text-slate-400">暂无任务</div>
-      )}
-
-      <div className="space-y-2">
-        {filteredTasks.map((task) => (
-          <section key={task.task_id} className="rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-black text-slate-950">{task.title}</div>
-                <p className="mt-0.5 truncate text-[11px] text-slate-500">{task.description}</p>
-              </div>
-              <button type="button" onClick={() => completeTask(task.task_id)} className="shrink-0 rounded-full bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-400 hover:text-emerald-600">完成</button>
-            </div>
-            <div className="mt-2 grid gap-1">
-              {task.steps.map((step, index) => (
-                <button key={step.step_id} type="button" onClick={() => runTaskStep(task.task_id, step.prompt)} className="flex items-center gap-2 rounded-xl bg-slate-50 px-2.5 py-2 text-left transition hover:bg-blue-50">
-                  <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700">{index + 1}</span>
-                  <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-slate-700">{step.title}</span>
-                  <span className="shrink-0 text-[10px] font-bold text-blue-600">{step.action_label}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-        ))}
       </div>
     </div>
   );
@@ -611,6 +467,32 @@ export default function FloatingAIAssistant() {
     <div className="flex min-h-full flex-col">
       {messages.length === 0 ? (
         <div className="space-y-3">
+          {renderEventBanner()}
+          {/* 待办摘要条：把原"服务概览"的核心信息（数量 + 最高优先待办）折叠进对话主页，
+              不再单独占一个 tab，避免与任务面板重复。 */}
+          {user && insights && (
+            <section className="rounded-2xl border border-blue-100 bg-gradient-to-br from-white to-blue-50/40 p-3.5 shadow-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-black text-slate-950">你好，{user.full_name}</div>
+                <button type="button" onClick={() => send("帮我总结当前订单、物流、退款和投诉情况。")} className="rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-bold text-white transition hover:bg-slate-800">一键总结</button>
+              </div>
+              <div className="mt-2.5 grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-xl bg-white p-2 shadow-sm"><div className="text-base font-black text-slate-950">{insights.counts.active_orders}</div><div className="text-[10px] text-slate-400">进行中订单</div></div>
+                <div className="rounded-xl bg-white p-2 shadow-sm"><div className="text-base font-black text-slate-950">{insights.counts.open_refunds}</div><div className="text-[10px] text-slate-400">待跟进退款</div></div>
+                <div className="rounded-xl bg-white p-2 shadow-sm"><div className="text-base font-black text-slate-950">{insights.counts.open_complaints}</div><div className="text-[10px] text-slate-400">未结投诉</div></div>
+              </div>
+              {visibleInsights.length > 0 && (
+                <div className="mt-2.5 grid gap-1">
+                  {visibleInsights.slice(0, 2).map((insight) => (
+                    <button key={insight.insight_id} type="button" onClick={() => openInsight(insight)} className="flex items-center justify-between gap-2 rounded-xl bg-white px-2.5 py-2 text-left shadow-sm transition hover:bg-blue-50/70">
+                      <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-slate-700">{insight.title}</span>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${insight.severity === "urgent" ? "bg-red-100 text-red-700" : insight.severity === "high" ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-500"}`}>{insight.action_label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
           <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
             <div className="text-sm font-black text-slate-950">今天帮你处理什么？</div>
             <p className="mt-1 text-[11px] text-slate-500">点下面任意场景，我会直接帮你把事办了 —— 不是教你怎么做，是替你做。</p>
@@ -667,7 +549,7 @@ export default function FloatingAIAssistant() {
             <div className="text-xs font-black text-slate-900">🚀 想看完整能力？用演示账号登录</div>
             <p className="mt-1 text-[11px] leading-4 text-slate-500">登录后可查真实订单、物流、退款、投诉，并让我直接替你执行。</p>
             <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-blue-700 shadow-sm">
-              演示账号 <span className="rounded bg-blue-50 px-1.5 py-0.5">customer01</span> / <span className="rounded bg-blue-50 px-1.5 py-0.5">demo123</span>
+              演示账号 <span className="rounded bg-blue-50 px-1.5 py-0.5">13560569291</span> / <span className="rounded bg-blue-50 px-1.5 py-0.5">123456</span>
             </div>
           </div>
           <span className="text-2xl">🔑</span>
@@ -716,24 +598,24 @@ export default function FloatingAIAssistant() {
           {/* Sidebar - only in expanded + logged in */}
           {user && <aside className={`hidden shrink-0 flex-col border-r border-blue-50 bg-[#f7fbff] p-5 ${expanded ? "w-64 lg:flex" : "hidden"}`}>
             <div className="flex items-center gap-3"><div className="relative h-16 w-16 overflow-hidden rounded-2xl bg-white shadow-sm"><img src="/assistant/ai-assistant-avatar.png" alt="" className="assistant-avatar-3d absolute inset-0 h-full w-full object-cover object-center" /></div><div><div className="text-base font-black text-slate-950">ShopEase AI</div><div className="mt-1 text-xs font-semibold text-emerald-600">在线服务中</div></div></div>
-            <nav className="mt-8 grid gap-2">{(["briefing", "tasks", "chat", "trace"] as AssistantView[]).map((view) => (<button key={view} type="button" onClick={() => { setAssistantView(view); if (view === "trace") setShowTrace(true); }} className={`rounded-2xl px-4 py-3 text-left text-sm font-black transition ${assistantView === view ? "bg-slate-950 text-white shadow-lg" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{view === "briefing" ? "服务概览" : view === "tasks" ? "任务面板" : view === "chat" ? "AI 对话" : "Agent 面板"}</button>))}</nav>
+            <nav className="mt-8 grid gap-2">{(["chat", "trace"] as AssistantView[]).map((view) => (<button key={view} type="button" onClick={() => setAssistantView(view)} className={`rounded-2xl px-4 py-3 text-left text-sm font-black transition ${assistantView === view ? "bg-slate-950 text-white shadow-lg" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{view === "chat" ? "AI 对话" : "Agent 面板"}</button>))}</nav>
             <div className="mt-auto rounded-2xl bg-white p-4 text-xs leading-5 text-slate-500 shadow-sm">AI 回复仅供参考，订单和售后以平台记录为准。</div>
           </aside>}
 
           <div className="flex min-w-0 flex-1 flex-col">
             {/* Header */}
             <header className="flex items-center justify-between border-b border-blue-50 bg-gradient-to-r from-[#f6fbff] via-white to-[#f8f4ff] px-4 py-3">
-              <div className="min-w-0 flex items-center gap-3">{!expanded && <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-white shadow-sm"><img src="/assistant/ai-assistant-avatar.png" alt="" className="assistant-avatar-3d absolute inset-0 h-full w-full object-cover object-center" /></div>}<div><div className="truncate text-sm font-black text-slate-950">{user ? (assistantView === "briefing" ? "服务概览" : assistantView === "tasks" ? "任务面板" : assistantView === "chat" ? "AI 对话" : "Agent 面板") : "ShopEase AI 助手"}</div>{expanded && user && <div className="mt-0.5 truncate text-xs text-slate-500">{user.full_name}，正在结合你的服务上下文回复</div>}</div></div>
+              <div className="min-w-0 flex items-center gap-3">{!expanded && <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-white shadow-sm"><img src="/assistant/ai-assistant-avatar.png" alt="" className="assistant-avatar-3d absolute inset-0 h-full w-full object-cover object-center" /></div>}<div><div className="truncate text-sm font-black text-slate-950">{user ? (assistantView === "chat" ? "AI 对话" : "Agent 面板") : "ShopEase AI 助手"}</div>{expanded && user && <div className="mt-0.5 truncate text-xs text-slate-500">{user.full_name}，正在结合你的服务上下文回复</div>}</div></div>
               <div className="flex items-center gap-1.5">{user && <button type="button" onClick={resetConversation} className="hidden rounded-full border border-slate-100 px-2.5 py-1.5 text-[11px] font-bold text-slate-500 hover:text-blue-700 sm:inline-flex">清空</button>}<button type="button" onClick={() => setExpanded((value) => !value)} className="h-8 rounded-full border border-slate-100 px-2.5 text-[11px] font-bold text-slate-600 hover:text-blue-700" aria-label={expanded ? "还原窗口" : "最大化"}>{expanded ? "还原" : "展开"}</button><button type="button" onClick={() => setOpen(false)} className="grid h-8 w-8 place-items-center rounded-full text-sm font-black text-slate-500 hover:bg-slate-100 hover:text-slate-950" aria-label="关闭助手">✕</button></div>
             </header>
 
             {/* Tab bar - only when logged in */}
-            {user && <div className="flex gap-1.5 overflow-x-auto border-b border-blue-50 bg-white px-3 py-2">{(["briefing", "tasks", "chat", "trace"] as AssistantView[]).map((view) => (<button key={view} type="button" onClick={() => { setAssistantView(view); if (view === "trace") setShowTrace(true); }} className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold transition ${assistantView === view ? "bg-slate-950 text-white" : "bg-slate-50 text-slate-500 hover:bg-slate-100"}`}>{view === "briefing" ? "概览" : view === "tasks" ? "任务" : view === "chat" ? "对话" : "面板"}</button>))}</div>}
+            {user && <div className="flex gap-1.5 overflow-x-auto border-b border-blue-50 bg-white px-3 py-2">{(["chat", "trace"] as AssistantView[]).map((view) => (<button key={view} type="button" onClick={() => setAssistantView(view)} className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-bold transition ${assistantView === view ? "bg-slate-950 text-white" : "bg-slate-50 text-slate-500 hover:bg-slate-100"}`}>{view === "chat" ? "对话" : "Agent 面板"}</button>))}</div>}
 
             {/* Main content */}
             <main className="chat-scrollbar flex-1 overflow-y-auto bg-gradient-to-b from-[#f7fbff] to-white p-3 sm:p-4">
               {user ? (
-                <>{assistantView === "briefing" && renderBriefingPage()}{assistantView === "tasks" && renderTasksPage()}{assistantView === "chat" && renderChatPage()}{assistantView === "trace" && renderTracePage()}</>
+                <>{assistantView === "chat" && renderChatPage()}{assistantView === "trace" && renderTracePage()}</>
               ) : (
                 messages.length > 0 ? renderChatPage() : renderGuestWelcome()
               )}
