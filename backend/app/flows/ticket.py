@@ -16,6 +16,7 @@ import logging
 from app.agents.complaint_intent import extract_complaint_id, is_followup_request
 from app.database.connection import DatabaseAccessError
 from app.database.repositories import ComplaintRepository
+from app.tools.tool_router import _extract_order_id
 from app.flows.base import BaseFlow, FlowResult
 from app.schemas.intent import IntentResult
 from app.models.message import Message, MessageRole
@@ -54,14 +55,28 @@ class TicketFlow(BaseFlow):
         )
 
     async def _handle_followup(self, intent_result: IntentResult, history: list[dict]) -> FlowResult:
-        """跟进已有投诉：查询真实投诉记录并总结，绝不创建新投诉。"""
+        """跟进已有投诉：查询真实投诉记录并总结，绝不创建新投诉。
+
+        解析优先级：
+        1. 用户话术里的投诉/工单编号（最精确）
+        2. 前端注入的"本轮优先处理订单号"→ 按订单号查最近一条投诉
+           （用户常说"这个订单我投诉过了"却不记得编号）
+        """
+        repo = ComplaintRepository()
         ref_id = extract_complaint_id(intent_result.raw_input)
         complaint = None
-        if ref_id:
-            try:
-                complaint = ComplaintRepository().get_by_any_id(ref_id)
-            except DatabaseAccessError as exc:
-                logger.warning(f"TicketFlow follow-up db error: {exc}")
+        lookup_key = ref_id
+        try:
+            if ref_id:
+                complaint = repo.get_by_any_id(ref_id)
+            if complaint is None:
+                order_id = _extract_order_id(intent_result.raw_input)
+                if order_id:
+                    complaint = repo.get_latest_by_order_id(order_id)
+                    if complaint:
+                        lookup_key = order_id
+        except DatabaseAccessError as exc:
+            logger.warning(f"TicketFlow follow-up db error: {exc}")
 
         if complaint:
             user_message = (
@@ -77,7 +92,7 @@ class TicketFlow(BaseFlow):
                 message=Message(role=MessageRole.ASSISTANT, content=content),
                 tool_calls=[{
                     "tool_name": "complaint_lookup",
-                    "tool_input": {"complaint_id": ref_id},
+                    "tool_input": {"lookup_key": lookup_key},
                     "tool_output": {
                         "complaint_id": complaint.get("complaint_id"),
                         "complaint_status": complaint.get("complaint_status"),
@@ -89,8 +104,8 @@ class TicketFlow(BaseFlow):
             )
 
         content = (
-            f"我没有查到编号 {ref_id or '（未识别）'} 的投诉记录，"
-            "请确认工单号是否正确，或者我可以帮你转人工客服核实。"
+            "我没有查到与这条信息对应的投诉记录，"
+            "麻烦你确认下投诉编号或订单号，我再帮你查；也可以帮你转人工核实。"
         )
         return FlowResult(
             message=Message(role=MessageRole.ASSISTANT, content=content),

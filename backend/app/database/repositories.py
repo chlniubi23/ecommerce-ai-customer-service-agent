@@ -746,6 +746,23 @@ class ComplaintRepository(MySQLRepository):
             return self.get_by_id(row["complaint_id"])
         return None
 
+    def get_latest_by_order_id(self, order_id: str) -> dict[str, Any] | None:
+        """按订单号查询最近一条投诉（用户说"这个订单我投诉过了"但不记得编号时用）。"""
+        if not order_id:
+            return None
+        row = self.fetch_one(
+            """
+            SELECT complaint_id FROM complaints
+            WHERE order_id = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (order_id,),
+        )
+        if row:
+            return self.get_by_id(row["complaint_id"])
+        return None
+
     def _default_user_id(self) -> str:
         row = self.fetch_one("SELECT user_id FROM users ORDER BY created_at ASC LIMIT 1")
         if not row:

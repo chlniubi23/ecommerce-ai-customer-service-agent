@@ -21,8 +21,8 @@ SYSTEM_CONTEXT_MARKER = "[系统补充上下文"
 
 # 只读动作：出现这些词时，即使句子里有"投诉/工单"也不算创建
 _QUERY_VERBS = (
-    "跟进", "查询", "查看", "查一下", "看看", "看一下", "进度", "情况",
-    "记录", "状态", "怎么样", "处理到", "到哪", "总结", "汇总", "说明",
+    "跟进", "查询", "查看", "查一下", "看看", "看一下", "进度", "进展", "情况",
+    "记录", "状态", "怎么样", "处理到", "处理得", "到哪", "总结", "汇总", "说明",
     "是否需要升级", "有没有",
 )
 
@@ -31,6 +31,12 @@ _CREATE_VERBS = ("创建", "提交", "发起", "新建", "立案", "我要", "�
 
 # 创建动作的目标名词
 _COMPLAINT_NOUNS = ("投诉", "工单", "客诉")
+
+# 过去完成语气：表明"投诉已存在"。这类表述语义上不可能是"要新建投诉"，
+# 而是跟进已有投诉，因此优先按只读跟进处理（即使没带编号）。
+_ALREADY_COMPLAINED_HINTS = (
+    "已经投诉", "投诉过", "投诉了", "已投诉", "之前投诉", "提交过投诉", "投诉已",
+)
 
 # 投诉/工单编号（跟进时用户可能给投诉号 CMP... 或工单号 TKT...）。
 # 注意：不能用 \b —— 编号紧贴中文时（"工单CMP_DEMO_D01的进度"）\b 不成立，
@@ -41,8 +47,8 @@ _TICKET_REF_PATTERN = re.compile(
 
 # 跟进/查询进度类提示词
 _FOLLOWUP_HINTS = (
-    "跟进", "进度", "处理到", "状态", "怎么样了", "是否需要升级",
-    "查一下", "查询", "查看",
+    "跟进", "进度", "进展", "处理到", "处理得", "状态", "怎么样", "怎么样了",
+    "是否需要升级", "查一下", "查询", "查看", "看看",
 )
 
 
@@ -69,7 +75,14 @@ def is_followup_request(text: str) -> bool:
     has_ref = _TICKET_REF_PATTERN.search(visible) is not None
     mentions_complaint = any(noun in visible for noun in _COMPLAINT_NOUNS)
     has_followup = any(hint in visible for hint in _FOLLOWUP_HINTS)
-    return has_ref and mentions_complaint and has_followup
+    already_complained = any(hint in visible for hint in _ALREADY_COMPLAINED_HINTS)
+    # 两条跟进路径：
+    # 1) 带编号 + 投诉名词 + 跟进动作（最精确）
+    # 2) 明确表明"已经投诉过" + 跟进动作（用户常不记得编号，但过去完成语气
+    #    足以确定是跟进而非新建）
+    if has_ref and mentions_complaint and has_followup:
+        return True
+    return already_complained and has_followup
 
 
 def _has_query_verb(text: str) -> bool:
@@ -84,6 +97,10 @@ def is_explicit_create_request(text: str) -> bool:
 
     # 只读动作优先：跟进/查询/总结投诉一律不算创建
     if _has_query_verb(visible):
+        return False
+
+    # 过去完成语气（"已经投诉了/投诉过"）表明投诉已存在，绝不是新建
+    if any(hint in visible for hint in _ALREADY_COMPLAINED_HINTS):
         return False
 
     has_noun = any(noun in visible for noun in _COMPLAINT_NOUNS)

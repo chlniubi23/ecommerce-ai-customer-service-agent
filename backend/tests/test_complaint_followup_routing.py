@@ -76,9 +76,37 @@ class ComplaintFollowupFlowTest(unittest.IsolatedAsyncioTestCase):
              patch("app.flows.ticket.call_llm", new=AsyncMock(return_value="ok")), \
              patch("app.flows.ticket.select_tool", create=True) as select_tool_mock:
             repo_cls.return_value.get_by_any_id.return_value = None
+            repo_cls.return_value.get_latest_by_order_id.return_value = None
             result = await flow.handle(intent, history=[])
         select_tool_mock.assert_not_called()
         self.assertIn("没有查到", result.message.content)
+
+    async def test_followup_by_order_id_when_no_complaint_ref(self):
+        """用户说"这个订单我投诉过了想看进展"（无编号）+ 上下文带订单号：
+        按订单号查最近一条投诉，读真实记录，绝不新建。"""
+        flow = TicketFlow()
+        intent = IntentResult(
+            intent=IntentType.TICKET,
+            confidence=0.92,
+            raw_input=(
+                "这个订单我已经投诉了，我想知道最新处理进展\n\n"
+                "[系统补充上下文 - 不要把本段当成用户原话]\n"
+                "本轮优先处理订单号：ORD_DEMO_003"
+            ),
+        )
+        with patch("app.flows.ticket.ComplaintRepository") as repo_cls, \
+             patch("app.flows.ticket.call_llm", new=AsyncMock(return_value="投诉处理中")):
+            repo_cls.return_value.get_by_any_id.return_value = None
+            repo_cls.return_value.get_latest_by_order_id.return_value = {
+                "complaint_id": "CMP_DEMO_001",
+                "complaint_status": "已升级",
+                "priority": "紧急",
+                "process_records": [],
+                "escalations": [],
+            }
+            result = await flow.handle(intent, history=[])
+        repo_cls.return_value.get_latest_by_order_id.assert_called_once_with("ORD_DEMO_003")
+        self.assertTrue(any(tc.get("tool_name") == "complaint_lookup" for tc in result.tool_calls))
 
     async def test_unconfirmed_ticket_intent_never_creates(self):
         """LLM 把模糊抱怨路由到 ticket 时（非跟进、非明确创建），绝不建单。"""
