@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" fill="none">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="34%" r="72%">
+      <stop offset="0%" stop-color="#ecf8f1"/>
+      <stop offset="60%" stop-color="#d6efe1"/>
+      <stop offset="100%" stop-color="#bfe3ce"/>
+    </radialGradient>
+    <linearGradient id="frame" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fbfdfc"/>
+      <stop offset="100%" stop-color="#dfe7e2"/>
+    </linearGradient>
+    <linearGradient id="tray" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f4efe4"/>
+      <stop offset="100%" stop-color="#d9cfbc"/>
+    </linearGradient>
+    <linearGradient id="wall" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f9d58"/>
+      <stop offset="100%" stop-color="#34c77b"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#bg)"/>
+  <ellipse cx="400" cy="672" rx="196" ry="30" fill="#0b1a12" opacity="0.10"/>
+  <!-- vertical frame posts -->
+  <rect x="252" y="180" width="18" height="452" rx="9" fill="url(#frame)" stroke="#c7d0ca" stroke-width="3"/>
+  <rect x="530" y="180" width="18" height="452" rx="9" fill="url(#frame)" stroke="#c7d0ca" stroke-width="3"/>
+  <!-- three trays -->
+  <g stroke="#c7d0ca" stroke-width="3">
+    <rect x="238" y="220" width="324" height="66" rx="18" fill="url(#tray)"/>
+    <rect x="238" y="366" width="324" height="66" rx="18" fill="url(#tray)"/>
+    <rect x="238" y="512" width="324" height="66" rx="18" fill="url(#tray)"/>
+  </g>
+  <!-- items on top tray -->
+  <rect x="270" y="184" width="40" height="40" rx="8" fill="#34c77b" opacity="0.85"/>
+  <rect x="322" y="176" width="30" height="48" rx="8" fill="#5b8bff" opacity="0.8"/>
+  <circle cx="400" cy="204" r="20" fill="#ffb020" opacity="0.85"/>
+  <!-- handle -->
+  <rect x="238" y="150" width="120" height="16" rx="8" fill="url(#frame)" stroke="#c7d0ca" stroke-width="3"/>
+  <rect x="238" y="150" width="16" height="40" rx="8" fill="url(#frame)"/>
+  <!-- wheels -->
+  <circle cx="261" cy="640" r="20" fill="#3a463f"/><circle cx="261" cy="640" r="8" fill="#8a938c"/>
+  <circle cx="539" cy="640" r="20" fill="#3a463f"/><circle cx="539" cy="640" r="8" fill="#8a938c"/>
+  <g transform="translate(96 96)">
+    <rect x="0" y="0" width="164" height="46" rx="23" fill="url(#wall)"/>
+    <text x="82" y="30" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="21" font-weight="800" fill="#fff">三层收纳</text>
+  </g>
+</svg>

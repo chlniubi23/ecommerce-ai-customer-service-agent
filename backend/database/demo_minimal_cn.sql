@@ -88,12 +88,12 @@ INSERT INTO products (
  NOW(), DATE_SUB(NOW(), INTERVAL 3 DAY));
 
 INSERT INTO product_images (image_id, product_id, image_url, alt_text, is_primary, sort_order) VALUES
-('IMG_DEMO_001', 'PROD_DEMO_001', '/products/smartphone.jpg', 'smartphone real product image', 1, 1),
-('IMG_DEMO_002', 'PROD_DEMO_002', '/products/earbuds.jpg', 'wireless earbuds real product image', 1, 1),
-('IMG_DEMO_003', 'PROD_DEMO_003', '/products/robot-vacuum.jpg', 'robot vacuum real product image', 1, 1),
-('IMG_DEMO_004', 'PROD_DEMO_004', '/products/skincare-set.jpg', 'skincare set real product image', 1, 1),
-('IMG_DEMO_005', 'PROD_DEMO_005', '/products/stream-microphone.jpg', 'streaming microphone real product image', 1, 1),
-('IMG_DEMO_006', 'PROD_DEMO_006', '/products/storage-cart.jpg', 'storage cart real product image', 1, 1);
+('IMG_DEMO_001', 'PROD_DEMO_001', '/products/smartphone.svg', '星耀 X1 Pro 5G 手机商品图', 1, 1),
+('IMG_DEMO_002', 'PROD_DEMO_002', '/products/earbuds.svg', '云感降噪 Pro 耳机商品图', 1, 1),
+('IMG_DEMO_003', 'PROD_DEMO_003', '/products/robot-vacuum.svg', '轻居智能扫地机器人商品图', 1, 1),
+('IMG_DEMO_004', 'PROD_DEMO_004', '/products/skincare-set.svg', '悦己修护水乳礼盒商品图', 1, 1),
+('IMG_DEMO_005', 'PROD_DEMO_005', '/products/stream-microphone.svg', '直播麦克风套装商品图', 1, 1),
+('IMG_DEMO_006', 'PROD_DEMO_006', '/products/storage-cart.svg', '折叠收纳推车商品图', 1, 1);
 
 INSERT INTO product_collection_items (collection_id, product_id, sort_order) VALUES
 ('COL_DOU_HOT', 'PROD_DEMO_001', 1),

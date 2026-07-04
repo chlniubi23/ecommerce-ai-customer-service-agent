@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" fill="none">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="34%" r="72%">
+      <stop offset="0%" stop-color="#ecf8f1"/>
+      <stop offset="60%" stop-color="#d6efe1"/>
+      <stop offset="100%" stop-color="#bfe3ce"/>
+    </radialGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f6faf8"/>
+      <stop offset="100%" stop-color="#cdd8d2"/>
+    </linearGradient>
+    <linearGradient id="side" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#9aa8a1"/>
+      <stop offset="100%" stop-color="#5f6d66"/>
+    </linearGradient>
+    <linearGradient id="wall" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f9d58"/>
+      <stop offset="100%" stop-color="#34c77b"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#bg)"/>
+  <ellipse cx="400" cy="558" rx="238" ry="52" fill="#0b1a12" opacity="0.10"/>
+  <!-- vacuum body (top-down perspective) -->
+  <g transform="translate(400 430)">
+    <ellipse cx="0" cy="60" rx="230" ry="92" fill="url(#side)"/>
+    <ellipse cx="0" cy="30" rx="230" ry="92" fill="url(#top)" stroke="#fff" stroke-width="5"/>
+    <ellipse cx="0" cy="30" rx="150" ry="60" fill="#e4ebe7"/>
+    <circle cx="0" cy="12" r="34" fill="#2a332e"/>
+    <circle cx="0" cy="12" r="16" fill="#34c77b"/>
+    <!-- lidar bump -->
+    <ellipse cx="0" cy="-42" rx="46" ry="20" fill="#3a463f"/>
+    <ellipse cx="0" cy="-46" rx="46" ry="20" fill="#525f57"/>
+    <!-- side bumper light -->
+    <path d="M -215 34 A 230 92 0 0 1 -150 -34" stroke="#34c77b" stroke-width="7" fill="none" opacity="0.8"/>
+    <path d="M 215 34 A 230 92 0 0 0 150 -34" stroke="#34c77b" stroke-width="7" fill="none" opacity="0.8"/>
+  </g>
+  <!-- side brush -->
+  <g transform="translate(210 452)">
+    <circle cx="0" cy="0" r="16" fill="#2a332e"/>
+    <g stroke="#c9a24b" stroke-width="6" stroke-linecap="round">
+      <line x1="0" y1="0" x2="-40" y2="-14"/>
+      <line x1="0" y1="0" x2="-42" y2="12"/>
+      <line x1="0" y1="0" x2="-28" y2="34"/>
+    </g>
+  </g>
+  <g transform="translate(96 96)">
+    <rect x="0" y="0" width="182" height="46" rx="23" fill="url(#wall)"/>
+    <text x="91" y="30" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="21" font-weight="800" fill="#fff">扫拖一体机</text>
+  </g>
+</svg>

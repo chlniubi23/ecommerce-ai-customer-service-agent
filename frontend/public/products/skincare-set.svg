@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" fill="none">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="34%" r="72%">
+      <stop offset="0%" stop-color="#fdeef4"/>
+      <stop offset="60%" stop-color="#f8dbe7"/>
+      <stop offset="100%" stop-color="#f0c4d6"/>
+    </radialGradient>
+    <linearGradient id="bottle" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f2d7e2"/>
+    </linearGradient>
+    <linearGradient id="jar" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fbe6ef"/>
+      <stop offset="100%" stop-color="#e6b8cd"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#c99a6a"/>
+      <stop offset="100%" stop-color="#a5794b"/>
+    </linearGradient>
+    <linearGradient id="wall" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#e0457b"/>
+      <stop offset="100%" stop-color="#ff7aa8"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#bg)"/>
+  <ellipse cx="400" cy="648" rx="220" ry="40" fill="#5a1030" opacity="0.10"/>
+  <!-- gift tray -->
+  <rect x="196" y="560" width="408" height="70" rx="20" fill="#f7d9e6" stroke="#fff" stroke-width="4"/>
+  <!-- toner bottle (tall) -->
+  <g transform="translate(322 400)">
+    <rect x="-62" y="-150" width="124" height="310" rx="30" fill="url(#bottle)" stroke="#fff" stroke-width="5"/>
+    <rect x="-34" y="-198" width="68" height="54" rx="12" fill="url(#cap)"/>
+    <rect x="-44" y="-70" width="88" height="120" rx="14" fill="#fff" opacity="0.55"/>
+    <text x="0" y="8" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="26" font-weight="800" fill="#e0457b">水</text>
+    <text x="0" y="42" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#c98" opacity="0.9">TONER</text>
+  </g>
+  <!-- lotion jar (short) -->
+  <g transform="translate(486 456)">
+    <rect x="-70" y="-104" width="140" height="204" rx="34" fill="url(#jar)" stroke="#fff" stroke-width="5"/>
+    <rect x="-50" y="-136" width="100" height="46" rx="16" fill="url(#cap)"/>
+    <rect x="-50" y="-40" width="100" height="96" rx="16" fill="#fff" opacity="0.5"/>
+    <text x="0" y="18" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="26" font-weight="800" fill="#e0457b">乳</text>
+    <text x="0" y="48" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#c98" opacity="0.9">LOTION</text>
+  </g>
+  <!-- petals -->
+  <g fill="#ff9bbd" opacity="0.85">
+    <ellipse cx="250" cy="600" rx="20" ry="10" transform="rotate(-20 250 600)"/>
+    <ellipse cx="560" cy="596" rx="20" ry="10" transform="rotate(24 560 596)"/>
+  </g>
+  <g transform="translate(96 96)">
+    <rect x="0" y="0" width="164" height="46" rx="23" fill="url(#wall)"/>
+    <text x="82" y="30" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="21" font-weight="800" fill="#fff">修护礼盒</text>
+  </g>
+</svg>
