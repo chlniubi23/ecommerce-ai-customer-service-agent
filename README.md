@@ -1,120 +1,60 @@
-# ShopEase AI — 电商智能客服助手（AI Shopping Assistant）
+# 小易 AI 电商助手（E-commerce Customer Service Agent）
 
-> 把传统电商客服从「问题响应式」升级为「任务执行型智能体」——不是告诉用户去哪点，而是直接替用户把事办完。
+任务执行型电商客服 Agent（全栈）：用户用自然语言提出需求，Agent 结合页面/用户上下文完成意图识别 → 业务路由 → 工具调用 → 真实 MySQL 读写，并对退款、投诉等高风险写操作执行"收集原因 → 确认卡片 → 查重 → 落库"的确认闸门。**本地演示原型，未做生产化鉴权，请勿直接暴露公网。**
 
-一个基于 Agent 架构的电商 AI 助手：用户用自然语言表达需求，系统自动理解意图、路由到对应能力、调用业务工具**真实执行**（写库），并把结果反馈给用户。覆盖订单、物流、退款、商品推荐、知识问答、投诉、转人工、优惠券 8 大业务能力。
+## 核心能力
 
----
+- **确定性优先的路由**：规则强信号短路 + LLM JSON 分类兜底 + 置信度降级；路由层评测集 71 条用例，离线规则层 / 在线全量均 100%（`backend/evaluation/`）
+- **高风险写操作安全设计**：退款/投诉必须经确认卡片；三层幂等查重；确认词收紧为明确指令（弱肯定词不触发建单）；FSM/中断/多域协调全路径覆盖闸门，AI 绝不静默写库
+- **多轮任务状态管理**：FSM + 槽位填充 + 中断挂起/恢复 + 会话级确认草稿（失败可重试）
+- **SSE 真流式**：`POST /api/v1/chat/stream`（start → delta* → done），所有 Flow 共用 `call_llm` 通道零改造获得流式；前端流式失败自动回退整包接口
+- **写路径原子性**：下单（4 连插）、退款（插单+订单状态同步）、投诉（2 连插）单连接事务，失败整体回滚
+- **主动服务**：业务状态扫描 → 去重落库 → 未读事件推送，已读落库不重复打扰
+- **双数据通道**：实时业务事实走 MySQL；平台规则/SOP/商品知识走 KnowledgeAgent + 本地 JSON 向量库（N-gram Hash Embedding 演示实现）
 
-## 一、为什么做这个（产品出发点）
+## 技术栈
 
-传统电商在线客服有几个反复被用户吐槽的痛点，这个项目就是冲着解决它们去的：
+Next.js 15（App Router，React 19，TS strict）· FastAPI · MySQL（pymysql）· OpenAI 兼容 API（DeepSeek 等，60s 超时 + 重试）
 
-| 痛点 | 传统客服 | 本项目的做法 |
-|---|---|---|
-| 反复描述问题 | "请提供订单号/手机号/收货人" | 前端自动携带登录用户、当前订单、优先订单号等上下文，一句话直接进入处理 |
-| 找不到业务入口 | 用户翻菜单、找帮助中心 | 自然语言直达 8 大能力，无需知道功能藏在哪 |
-| **只回答不执行** | "请到订单中心申请退款" | **直接调用工具写库**：退款、投诉、转人工、下单都真实落库 |
-| 服务被动 | 用户不问就不动 | 事件驱动的主动提醒：退款/投诉/物流异常自动生成待办事件 |
-| 无个性化 | 所有人同一套话术 | 基于用户真实购买历史推荐同品类有货商品 |
-| 链路过长 | 售后要跨多个页面多次交互 | 一轮对话内串联「查订单 → 判断 → 执行」 |
+## 快速启动
 
-> 完整痛点分析见 [痛点.md](痛点.md)。
+```powershell
+# 1. 数据库（MySQL 8.x）
+cmd.exe /c "mysql -u root -p < backend\database\schema.sql"
+# 启动前后端后在 /register 注册用户，再导入演示数据
+cmd.exe /c "mysql -u root -p ai_agent_commerce_demo < backend\database\demo_minimal_cn.sql"
 
-**核心理念**：Chatbot 告诉你「怎么做」，Agent 直接「帮你做」。本项目所有涉及状态变更的动作（退款、投诉、转人工、下单）都是真实数据库写操作，而非返回一句假的「已受理」。
-
----
-
-## 二、能力现状（诚实版）
-
-演示/面试要经得起追问，这里如实标注每个能力的真实程度：
-
-| 能力 | Flow | 工具 | 真实程度 |
-|---|---|---|---|
-| 订单查询 | OrderFlow | `query_order` | ✅ 读真实订单 |
-| 物流追踪 | LogisticsFlow | `logistics_query` | ✅ 读真实物流 |
-| 退款申请 | RefundFlow | `refund_apply` | ✅ **真写库** `INSERT refunds` |
-| 商品咨询/推荐 | ProductFlow | `query_inventory` / `recommend_products` | ✅ 推荐基于真实购买历史 |
-| 知识问答 | KnowledgeFlow | `knowledge_search` | ✅ RAG 检索，类别 union 防漏检 |
-| 投诉工单 | TicketFlow | `create_ticket` | ✅ **真写库**（创建前 AI 强制确认） |
-| 转人工 | HumanTransferFlow | `transfer_human` | ✅ **真入队** `INSERT human_transfer_requests` + 队列 +1 |
-| 优惠券 | CouponFlow | `query_coupons` | ⚠️ 演示数据源（无真实券表，接口已就绪） |
-| 主动服务 | — | `/agent/events` | ✅ 事件驱动 + 去重 + 未读/已读 |
-| 通用兜底 | GeneralFlow | — | ✅ 引导 + 能力介绍 |
-
-**已知边界（作为下一步规划，非隐藏缺陷）**：会话为进程内内存态（生产需 Redis）；优惠券为演示数据源；未接入鉴权/限流/监控。这些不影响项目作为能力展示，但真实上线需补齐。
-
----
-
-## 三、技术架构
-
-### 请求链路
-
-```
-用户输入
-  → classifier.classify_intent()      # 规则优先 + LLM 语义分类
-  → agent_router.route()               # 意图 → Flow
-  → Flow.handle()                      # 领域处理（订单/退款/…）
-  → tool_router.select_tool()          # 选工具 + 抽参
-  → tool_executor.execute()            # 统一执行（校验/超时/Trace）
-  → Repository                         # 参数化 SQL，真实读写 MySQL
-  → LLM 综合工具结果 → 自然语言回复
-```
-
-多领域复合请求（如「查订单顺便退款」）由 `MultiAgentCoordinator` 一轮内串联多个工具。
-
-### 关键设计决策
-
-- **分类：规则优先 + LLM 兜底**。可信指令（前端注入的「本轮任务」）和高确定性场景（推荐、当前用户优惠券）走确定性规则，其余交给 LLM 做语义理解。规则命中不烧 token 且稳定，LLM 负责长尾泛化。
-- **FSM + Slot Filling** 管理多轮必填参数（如退款/物流需要订单号），支持流程挂起/恢复。
-- **投诉创建确认闸门**：AI 帮用户建投诉前必须先确认，防止把「客服态度差」这类模糊抱怨静默建单——这是一个产品信任决策，不是技术细节。
-- **工具统一执行器**：所有工具调用经 `ToolExecutor`，集中做参数校验、超时控制、Trace 记录，便于前端「Agent 面板」可视化调用链。
-- **主动事件去重**：`(user_id, dedup_key)` 唯一约束，同一情形只提醒一次，看过标记已读——从「进店重算看板」升级为「事件驱动主动服务」。
-
-### 技术栈
-
-- **后端**：Python 3.12、FastAPI、OpenAI SDK、LangGraph、PyMySQL、Pydantic
-- **前端**：Next.js 15、React 19、TypeScript、Tailwind CSS
-- **数据**：MySQL（订单/商品/退款/投诉/物流/库存等业务表，仓储层参数化 SQL）
-
----
-
-## 四、工程质量
-
-- **74 个后端测试全绿**（`pytest`），覆盖意图路由、订单号抽取、投诉确认闸门、知识库类别过滤、转人工入队、主动事件去重、个性化推荐等。
-- **TDD 驱动**：关键修复均先写失败测试再实现。
-- **运行时验证**：多次发现单测通过但集成断裂的缺口（如推荐问题被分类成 GENERAL、优惠券被路由到知识库），说明只信单测不够，端到端验证必不可少。
-
-```bash
-# 后端
+# 2. 后端（复制 backend/.env.example 为 backend/.env 并填入 LLM Key 与 MySQL 密码）
 cd backend
-pip install -r requirements.txt
-# 配置 .env（见 .env.example），初始化库表 database/schema.sql + seed_cn.sql
-python -m pytest tests/ -q        # 跑测试
-uvicorn app.main:app --reload     # 启动 API :8000
+python -m pip install -r requirements.txt
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
-# 前端
+# 3. 前端（复制 frontend/.env.local.example 为 frontend/.env.local）
 cd frontend
-npm install && npm run dev        # :3000
+npm install
+npm run dev   # http://localhost:3000
 ```
 
----
+知识问答需先构建索引：`cd backend && python rebuild_rag_index.py`
 
-## 五、我在这个项目里解决的真实问题（面试可讲）
+## 测试与评测
 
-1. **订单号被误抽成 "Agent" / 手机号**：`OrderAgent` 里的 `Ord` 子串、上下文里的手机号被当订单号。根因是正则过宽 + 大小写不敏感回退。改为有序显式模式 + 大写 `ORD` 前缀，去掉裸数字回退。
-2. **AI 静默创建投诉**：系统上下文里的「投诉」关键词触发建单。拆成「用户自建」和「AI 代建需先确认」两条路径，TicketFlow 移除所有写库路径，创建只经确认闸门。
-3. **知识库查到内容却答「没有」**：LLM 把退款问题误分类成政策类，类别硬过滤把相关 chunk 丢了。改为类别 union，不因单次误判漏检。
-4. **转人工假成功**：只读排队数就返回成功。新建转接请求表，真实入队 + 队列 +1。
-5. **主动服务只是看板**：每次轮询重算同一批数据。引入持久化事件 + 去重 + 未读状态，做成事件驱动。
-6. **个性化推荐框架空转**：引擎存在但没接进对话、不看用户历史。基于真实订单历史反推偏好品类做推荐，并补上分类路由。
+```powershell
+cd backend
+python -m pytest tests/ -q              # 82 个单测（mock LLM/DB，可离线运行）
+python -m evaluation.run_eval           # 路由层评测（离线：规则层 63/63）
+python -m evaluation.run_eval --live    # 在线：含 LLM 层，全量 71/71
+cd ../frontend && npm run build         # 生产构建
+```
 
----
+## 文档导航
 
-## 六、下一步规划
+| 文档 | 内容 |
+| --- | --- |
+| [项目开发文档.md](项目开发文档.md) | 架构、目录地图、API、Agent 运行机制、启动与排查 Runbook |
+| [产品开发文档.md](产品开发文档.md) | 产品定义、用户旅程、核心流程规范、质量与风险 |
+| [痛点.md](痛点.md) | 传统电商客服痛点分析（立项依据） |
 
-- 会话状态迁移到 Redis，支持多实例与重启不丢失
-- 优惠券接入真实 `user_coupons` 表
-- 接口鉴权、限流、LLM 超时降级与告警
-- 定时扫描任务（物流迟滞、优惠券到期）主动 emit 事件
-- 推荐引入协同过滤 / 向量召回，提升个性化质量
+## 已知限制（演示定位）
+
+会话与确认草稿为进程内存态（生产应换 Redis）；无服务端鉴权体系；RAG 为本地哈希向量演示实现（计划替换为真实 Embedding）。详见项目开发文档第 15 节。

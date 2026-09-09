@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.*
+!.env.example
+!**/.env.example
+!**/.env.*.example
+frontend/.env.local
+!frontend/.env.local.example
+
+# Runtime data
+backend/uploads/
+backend/vector_store/
+backend/workflow_store/
+backend/workflow_repository/
+
+# Logs and local artifacts
+*.log
+*.tmp
+.codex_logs/
+knowledge_quality_validation_phase_8_6.json
+backend/backend_server.log
+backend/backend_server.err.log
+frontend/frontend_server.log
+frontend/frontend_server.err.log
+backend/vector_store/vectors.phase_8_6_final_*.json
+.pycache__/
+.DS_Store
+Thumbs.db
