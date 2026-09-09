@@ -42,8 +42,14 @@ class ComplaintIntentTest(unittest.TestCase):
 
     # ----- confirmation -----
     def test_confirmation_phrases(self):
-        for text in ["确认", "确认提交", "是的，提交吧", "可以", "好的就这样", "提交"]:
+        for text in ["确认", "确认提交", "是的，提交吧", "提交", "同意", "没问题"]:
             self.assertTrue(ci.is_confirmation(text), text)
+
+    def test_weak_affirmatives_are_not_auto_confirmed(self):
+        # 弱肯定词（"可以/好的/嗯"等）不再自动触发确认：等待确认时用户可能
+        # 已转向别的话题，弱词会误触发投诉/退款等写操作。
+        for text in ["可以", "好的", "好的就这样", "嗯", "行", "麻烦了"]:
+            self.assertFalse(ci.is_confirmation(text), text)
 
     def test_non_confirmation(self):
         for text in ["不用了", "先不要", "算了", "我再想想", "帮我查物流"]:

@@ -1,0 +1,72 @@
+# Enterprise Knowledge Base V1 交付报告
+
+## 交付范围
+
+本次构建 Enterprise Knowledge Base V1，作为 Knowledge Agent 的正式企业知识源。知识资产位于 `backend/knowledge_base/knowledge`，可被现有 Knowledge Sync Service 自动发现、解析、Chunk、Embedding 并写入向量库。
+
+## 知识分类结构
+
+- policy：平台政策、退款政策、退货政策、配送政策、投诉政策、会员政策、优惠券政策、客服政策、隐私政策、用户协议
+- refund：退款申请、退款审核、退款时效、拒绝场景、退款流程、售后流程
+- logistics：发货、配送、签收、异常件、物流时效、物流赔付
+- complaint：投诉受理、升级流程、分类标准、主管介入、处理时限
+- membership：会员等级、积分、成长值、会员权益、升级机制
+- coupon：优惠券通用规则、满减券、折扣券、发放、使用限制、失效
+- product：ThinkBook 14+、MacBook Air M4、MacBook Pro M4、iPhone 16、iPhone 16 Pro、iPad Air、AirPods Pro 2、Sony WH-1000XM5、ROG Ally、Huawei MateBook、Dell XPS、Lenovo Legion、Xiaomi 15
+- faq：支付 FAQ、物流退款投诉 FAQ、会员优惠券商品 FAQ
+- sop：客服 SOP、退款 SOP、投诉 SOP、物流 SOP、升级与主管处理 SOP
+- operation：活动规则、促销规则、运营规范、价格策略、库存管理
+
+## 知识库规模统计
+
+- 正式知识文档总数：60
+- 自动索引 Chunk 数：130
+- 向量索引文件：`backend/vector_store/vectors.json`
+- 文档格式：Markdown
+- 语言：中文
+
+## 分类数量统计
+
+- policy：9
+- refund：6
+- logistics：6
+- complaint：5
+- membership：5
+- coupon：6
+- product：10
+- faq：3
+- sop：5
+- operation：5
+
+## 导入与索引结果
+
+- 同步目录：`backend/knowledge_base/knowledge`
+- 发现文档：60
+- 成功索引：60
+- 跳过文档：0
+- 失败文档：0
+- 文档状态：indexed
+- 向量化状态：completed
+
+## Knowledge Agent 样例问题
+
+- 退款多久到账？
+- 什么情况下不能退款？
+- 退款审核多久？
+- 七天无理由退货条件是什么？
+- 配送时效说明是什么？
+- 物流异常怎么处理？
+- 投诉升级规则是什么？
+- 什么时候需要主管介入？
+- 会员等级说明是什么？
+- 积分可以提现吗？
+- 优惠券为什么不能用？
+- 平台优惠券规则是什么？
+- ThinkBook 14+ 支持扩展内存吗？
+- MacBook Air M4 内存能升级吗？
+- Sony WH-1000XM5 适合通勤吗？
+- 客服处理规范是什么？
+
+## 结论
+
+Enterprise Knowledge Base V1 已形成正式企业知识资产集合，覆盖平台规则、退款规则、物流规则、会员规则、投诉规则、商品知识、客服 SOP、FAQ 和运营规范，可作为 Knowledge Agent 的正式 RAG 知识源。

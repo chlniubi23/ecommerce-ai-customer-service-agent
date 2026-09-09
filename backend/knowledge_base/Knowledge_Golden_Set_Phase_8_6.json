@@ -1,0 +1,90 @@
+[
+  {
+    "id": "KQ_REFUND_001",
+    "query": "退款规则是什么",
+    "category": "refund",
+    "expected_documents": ["refund_timeline_atomic.md", "refund_process_guide.md", "refund_application_rules.md"],
+    "required_answer_points": ["售后审核", "审核通过", "原支付路径退回", "即时至7个工作日"],
+    "forbidden_points": ["保证当天到账", "知识库未收录"]
+  },
+  {
+    "id": "KQ_REFUND_002",
+    "query": "退款多久到账",
+    "category": "refund",
+    "expected_documents": ["refund_timeline_atomic.md"],
+    "required_answer_points": ["普通退款审核通常1至3个工作日", "审核通过后", "即时至7个工作日", "原支付路径"],
+    "forbidden_points": ["只需要1至3个工作日到账", "保证当天到账"]
+  },
+  {
+    "id": "KQ_REFUND_003",
+    "query": "七天无理由退货条件",
+    "category": "refund",
+    "expected_documents": ["seven_day_return_atomic.md"],
+    "required_answer_points": ["签收次日起7日内", "商品完好", "不影响二次销售", "配件赠品包装完整"],
+    "forbidden_points": ["所有商品都支持", "拆封一定可退"]
+  },
+  {
+    "id": "KQ_REFUND_004",
+    "query": "什么情况下不能退款",
+    "category": "refund",
+    "expected_documents": ["refund_rejection_atomic.md"],
+    "required_answer_points": ["超过售后期限", "人为损坏", "凭证不足", "可补充凭证或投诉复核"],
+    "forbidden_points": ["不能处理", "直接拒绝没有后续"]
+  },
+  {
+    "id": "KQ_COUPON_001",
+    "query": "优惠券怎么领取",
+    "category": "coupon",
+    "expected_documents": ["coupon_receive_atomic.md"],
+    "required_answer_points": ["首页活动入口", "商品详情页", "会员中心", "我的优惠券"],
+    "forbidden_points": ["所有用户一定能领取"]
+  },
+  {
+    "id": "KQ_MEMBER_001",
+    "query": "会员等级有哪些",
+    "category": "membership",
+    "expected_documents": ["membership_level_atomic.md"],
+    "required_answer_points": ["普通会员", "银卡会员", "金卡会员", "铂金会员", "黑钻会员", "成长值"],
+    "forbidden_points": ["永久固定等级"]
+  },
+  {
+    "id": "KQ_PRODUCT_001",
+    "query": "MacBook Air M4参数介绍",
+    "category": "product",
+    "expected_documents": ["macbook_air_m4_specs_atomic.md"],
+    "required_answer_points": ["Apple M4", "内存", "SSD", "Liquid Retina", "重量", "续航", "Thunderbolt"],
+    "forbidden_points": ["知识库未收录", "只有少量参数"]
+  },
+  {
+    "id": "KQ_PRODUCT_002",
+    "query": "ThinkBook 14+支持扩展内存吗",
+    "category": "product",
+    "expected_documents": ["thinkbook_14_plus_specs_atomic.md"],
+    "required_answer_points": ["取决于具体SKU", "板载内存", "不支持自行扩展", "确认具体版本"],
+    "forbidden_points": ["一定支持扩展", "一定不能扩展"]
+  },
+  {
+    "id": "KQ_PRODUCT_003",
+    "query": "iPhone16屏幕尺寸",
+    "category": "product",
+    "expected_documents": ["iphone_16_specs_atomic.md"],
+    "required_answer_points": ["iPhone 16约6.1英寸", "Plus约6.7英寸", "Pro约6.3英寸", "Pro Max约6.9英寸"],
+    "forbidden_points": ["所有型号尺寸相同"]
+  },
+  {
+    "id": "KQ_LOGISTICS_001",
+    "query": "物流政策是什么",
+    "category": "logistics",
+    "expected_documents": ["logistics_timeline_atomic.md"],
+    "required_answer_points": ["订单支付", "仓库拣货", "承运商运输", "派送", "签收", "异常配送"],
+    "forbidden_points": ["知识库未收录"]
+  },
+  {
+    "id": "KQ_COMPLAINT_001",
+    "query": "投诉升级规则",
+    "category": "complaint",
+    "expected_documents": ["complaint_escalation_atomic.md"],
+    "required_answer_points": ["普通客服无法解决", "主管介入", "处理时限", "记录处理结论"],
+    "forbidden_points": ["不能升级", "没有主管处理"]
+  }
+]

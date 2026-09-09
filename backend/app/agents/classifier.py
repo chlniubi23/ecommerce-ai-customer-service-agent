@@ -55,6 +55,8 @@ settings = get_settings()
 client = AsyncOpenAI(
     api_key=settings.openai_api_key,
     base_url=settings.openai_base_url,
+    timeout=settings.openai_timeout,
+    max_retries=settings.openai_max_retries,
 )
 
 
@@ -100,7 +102,7 @@ async def classify_intent(user_input: str) -> IntentResult:
                 {"role": "user", "content": visible_input},
             ],
             temperature=0.1,
-            max_tokens=100,
+            max_tokens=500,
         )
 
         raw_output = response.choices[0].message.content or ""

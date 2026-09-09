@@ -77,6 +77,10 @@ DOMAIN_DEPENDENCIES = {
     "logistics": ["order"],    # 物流查询可能需要从订单获取信息
 }
 
+# 需要"确认闸门"的写操作域：绝不能在多 Agent 协作里被静默执行，
+# 必须走单意图确认流程（先问原因 / 展示确认卡片，用户点确认后才写库）。
+GATED_WRITE_DOMAINS = {"refund", "complaint"}
+
 SYNTHESIZE_PROMPT = """你是电商平台资深 AI 客服。你刚同时处理了用户的多个需求，现在把结果用一段简短、口语的话告诉用户。
 
 要求：
@@ -104,9 +108,28 @@ def detect_multi_intent(user_input: str) -> list[str]:
 
 
 def should_coordinate(user_input: str) -> bool:
-    """判断是否需要启动多Agent协作"""
+    """判断是否需要启动多Agent协作。
+
+    只有"真正的跨域请求"才协作。退款/投诉这类写操作域，若同时命中的
+    其余域仅仅是它自身的依赖（如退款+订单 → 订单只是退款的依赖），
+    则视为单意图，交给对应确认闸门处理，绝不进多 Agent 静默写库。
+    """
     domains = detect_multi_intent(user_input)
-    return len(domains) >= 2
+    if len(domains) < 2:
+        return False
+
+    # 剔除"被依赖"的域：把每个 gated 写域的依赖从"独立意图"里排除。
+    gated = [d for d in domains if d in GATED_WRITE_DOMAINS]
+    if gated:
+        implied_deps: set[str] = set()
+        for d in gated:
+            implied_deps.update(DOMAIN_DEPENDENCIES.get(d, []))
+        residual = [d for d in domains if d not in implied_deps]
+        # 剩余域若只剩单个写域（如仅 refund），说明不是跨域，走单意图闸门
+        if len(residual) <= 1:
+            return False
+
+    return True
 
 
 def _extract_order_id(text: str) -> str | None:
@@ -189,10 +212,36 @@ async def coordinate(
             continue
 
         if domain == "refund" and order_id:
-            reason = _extract_refund_reason(user_input)
-            exec_result = await tool_executor.execute_by_name(
-                tool_name, order_id=order_id, reason=reason
-            )
+            # AI 绝不在多 Agent 协作里静默创建退款。两种情形：
+            # 1) 该订单已有退款 → 读取真实退款记录（只读），据此播报进度
+            # 2) 尚无退款 → 引导用户走确认流程，绝不直接写库
+            existing_rf = None
+            try:
+                from app.database.repositories import RefundRepository
+                existing_rf = RefundRepository().get_by_order_id(order_id)
+            except DatabaseAccessError as exc:
+                logger.warning(f"[Coordinator] refund lookup failed: {exc}")
+            if existing_rf:
+                all_tool_calls.append({
+                    "tool_name": "refund_apply",
+                    "tool_input": {"order_id": order_id},
+                    "tool_output": {
+                        "refund_id": existing_rf.get("refund_id"),
+                        "audit_status": existing_rf.get("audit_status"),
+                        "refund_status": existing_rf.get("refund_status"),
+                    },
+                    "success": True,
+                    "latency_ms": 0,
+                })
+                context_parts.append(
+                    f"[refund处理结果]\n该订单已有退款记录，请据此告知进度：\n{existing_rf}"
+                )
+            else:
+                context_parts.append(
+                    "[refund处理结果]\n已识别到你想退款。为避免误操作，我不会直接提交；"
+                    "请回复“申请退款”单独走退款流程，我会先跟你确认原因和金额再提交。"
+                )
+            continue
         elif domain == "complaint" and order_id:
             # AI 绝不在多 Agent 协作里静默创建投诉。三种情形分开处理：
             # 1) 跟进/已投诉过 → 读真实投诉记录（只读），绝不再要求"提交"

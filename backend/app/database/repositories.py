@@ -420,7 +420,7 @@ class OrderRepository(MySQLRepository):
             FROM orders o
             LEFT JOIN logistics_shipments s ON s.order_id = o.order_id
             WHERE o.user_id = %s
-            ORDER BY o.created_at DESC
+            ORDER BY o.order_id ASC
             """,
             (user_id,),
         )
@@ -490,68 +490,72 @@ class OrderRepository(MySQLRepository):
         )
         order_id = _numeric_id("ORD")
         item_id = f"OI{uuid.uuid4().hex[:12].upper()}"
-        line_amount = float(product["price"]) * quantity
-        self.execute(
-            """
-            INSERT INTO orders (
-                order_id, user_id, shipping_address_id, order_status,
-                payment_status, shipping_status, receipt_status, total_amount,
-                currency, created_at, paid_at, completed_at, updated_at
-            )
-            VALUES (%s, %s, %s, '已支付', '已支付', '待发货', '未收货',
-                    %s, %s, NOW(), NOW(), NULL, NOW())
-            """,
-            (
-                order_id,
-                user_id,
-                default_address["address_id"] if default_address else None,
-                line_amount,
-                product["currency"],
-            ),
-        )
-        self.execute(
-            """
-            INSERT INTO order_items (
-                order_item_id, order_id, product_id, sku_id, product_name,
-                quantity, unit_price, line_amount, created_at
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-            """,
-            (
-                item_id,
-                order_id,
-                product_id,
-                product["sku_id"],
-                product["product_name"],
-                quantity,
-                product["price"],
-                line_amount,
-            ),
-        )
         shipment_id = f"SHP{uuid.uuid4().hex[:12].upper()}"
         tracking_no = f"TRK{uuid.uuid4().hex[:12].upper()}"
-        self.execute(
-            """
-            INSERT INTO logistics_shipments (
-                shipment_id, order_id, carrier_id, tracking_no,
-                current_status, current_location, estimated_delivery_at,
-                shipped_at, delivered_at, created_at, updated_at
-            )
-            VALUES (%s, %s, 'CAR001', %s, '待发货', '商家仓库',
-                    DATE_ADD(NOW(), INTERVAL 3 DAY), NULL, NULL, NOW(), NOW())
-            """,
-            (shipment_id, order_id, tracking_no),
-        )
-        self.execute(
-            """
-            INSERT INTO logistics_tracking_events (
-                event_id, shipment_id, event_time, location, status, description
-            )
-            VALUES (%s, %s, NOW(), '商家仓库', '待发货',
-                    '订单已创建，等待仓库发货')
-            """,
-            (f"LTE{uuid.uuid4().hex[:12].upper()}", shipment_id),
-        )
+        line_amount = float(product["price"]) * quantity
+        # orders/order_items/logistics 四连插必须原子：任一跳失败整单回滚，
+        # 否则会留下无明细的脏订单（每语句独立连接提交的旧写法无法保证）。
+        with self.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO orders (
+                        order_id, user_id, shipping_address_id, order_status,
+                        payment_status, shipping_status, receipt_status, total_amount,
+                        currency, created_at, paid_at, completed_at, updated_at
+                    )
+                    VALUES (%s, %s, %s, '已支付', '已支付', '待发货', '未收货',
+                            %s, %s, NOW(), NOW(), NULL, NOW())
+                    """,
+                    (
+                        order_id,
+                        user_id,
+                        default_address["address_id"] if default_address else None,
+                        line_amount,
+                        product["currency"],
+                    ),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO order_items (
+                        order_item_id, order_id, product_id, sku_id, product_name,
+                        quantity, unit_price, line_amount, created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    """,
+                    (
+                        item_id,
+                        order_id,
+                        product_id,
+                        product["sku_id"],
+                        product["product_name"],
+                        quantity,
+                        product["price"],
+                        line_amount,
+                    ),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO logistics_shipments (
+                        shipment_id, order_id, carrier_id, tracking_no,
+                        current_status, current_location, estimated_delivery_at,
+                        shipped_at, delivered_at, created_at, updated_at
+                    )
+                    VALUES (%s, %s, 'CAR001', %s, '待发货', '商家仓库',
+                            DATE_ADD(NOW(), INTERVAL 3 DAY), NULL, NULL, NOW(), NOW())
+                    """,
+                    (shipment_id, order_id, tracking_no),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO logistics_tracking_events (
+                        event_id, shipment_id, event_time, location, status, description
+                    )
+                    VALUES (%s, %s, NOW(), '商家仓库', '待发货',
+                            '订单已创建，等待仓库发货')
+                    """,
+                    (f"LTE{uuid.uuid4().hex[:12].upper()}", shipment_id),
+                )
         created = self.get_order(order_id)
         if not created:
             raise RuntimeError("Order was inserted but could not be loaded")
@@ -619,16 +623,25 @@ class RefundRepository(MySQLRepository):
             raise ValueError(f"Order {order_id} does not exist")
 
         refund_id = f"REF{uuid.uuid4().hex[:12].upper()}"
-        self.execute(
-            """
-            INSERT INTO refunds (
-                refund_id, order_id, user_id, refund_reason, refund_amount,
-                audit_status, refund_status, created_at, updated_at
-            )
-            VALUES (%s, %s, %s, %s, %s, '待审核', '待处理', NOW(), NOW())
-            """,
-            (refund_id, order_id, order["user_id"], reason, order["total_amount"]),
-        )
+        # INSERT refunds + UPDATE orders 需原子：退款单落库但订单状态没更新
+        # 会让订单页与售后页数据互相矛盾。
+        with self.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO refunds (
+                        refund_id, order_id, user_id, refund_reason, refund_amount,
+                        audit_status, refund_status, created_at, updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, '待审核', '待处理', NOW(), NOW())
+                    """,
+                    (refund_id, order_id, order["user_id"], reason, order["total_amount"]),
+                )
+                # 退款申请创建后，同步将订单状态更新为"售后中"，让订单页实时反映售后进度
+                cur.execute(
+                    "UPDATE orders SET order_status = '售后中', updated_at = NOW() WHERE order_id = %s",
+                    (order_id,),
+                )
         created = self.get_by_order_id(order_id)
         if not created:
             raise RuntimeError("Refund was inserted but could not be loaded")
@@ -676,25 +689,27 @@ class ComplaintRepository(MySQLRepository):
 
         complaint_id = f"CMP{uuid.uuid4().hex[:12].upper()}"
         ticket_id = f"TKT{uuid.uuid4().hex[:12].upper()}"
-        self.execute(
-            """
-            INSERT INTO complaints (
-                complaint_id, ticket_id, user_id, order_id, complaint_type,
-                content, complaint_status, priority, created_at, updated_at
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, '已提交', '普通', NOW(), NOW())
-            """,
-            (complaint_id, ticket_id, user_id, order_id, complaint_type, content),
-        )
-        self.execute(
-            """
-            INSERT INTO complaint_process_records (
-                record_id, complaint_id, handler, action, note, created_at
-            )
-            VALUES (%s, %s, '投诉 Agent', '已创建', %s, NOW())
-            """,
-            (f"CPR{uuid.uuid4().hex[:12].upper()}", complaint_id, "投诉已由 Agent 工具创建"),
-        )
+        with self.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO complaints (
+                        complaint_id, ticket_id, user_id, order_id, complaint_type,
+                        content, complaint_status, priority, created_at, updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, '已提交', '普通', NOW(), NOW())
+                    """,
+                    (complaint_id, ticket_id, user_id, order_id, complaint_type, content),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO complaint_process_records (
+                        record_id, complaint_id, handler, action, note, created_at
+                    )
+                    VALUES (%s, %s, '投诉 Agent', '已创建', %s, NOW())
+                    """,
+                    (f"CPR{uuid.uuid4().hex[:12].upper()}", complaint_id, "投诉已由 Agent 工具创建"),
+                )
         created = self.get_by_id(complaint_id)
         if not created:
             raise RuntimeError("Complaint was inserted but could not be loaded")

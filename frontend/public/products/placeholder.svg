@@ -12,6 +12,6 @@
     <circle cx="-52" cy="-30" r="26" fill="#8a99b8" stroke="none"/>
     <path d="M -120 74 L -30 -6 L 40 60 L 78 30 L 120 72"/>
   </g>
-  <text x="400" y="560" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="34" font-weight="800" fill="#8a99b8">ShopEase</text>
+  <text x="400" y="560" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="34" font-weight="800" fill="#8a99b8">小易电商助手</text>
   <text x="400" y="604" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="22" font-weight="600" fill="#a6b2c9">商品图片准备中</text>
 </svg>

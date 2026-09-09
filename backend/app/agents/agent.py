@@ -30,6 +30,7 @@ Agent 主入口 - 决策引擎核心
 - 构建 AgentTrace 并触发 Trace Logger
 """
 
+import re
 import time
 import uuid
 import logging
@@ -348,7 +349,6 @@ async def _handle_complaint_gate(
     from app.agents.coordinator import _extract_order_id
 
     has_pending = session.pending_complaint is not None
-    action = ci.resolve_complaint_gate(has_pending, user_message)
     visible = ci.user_visible_input(user_message)
 
     def _finish(content: str, reasoning: str):
@@ -372,23 +372,140 @@ async def _handle_complaint_gate(
         )
         return AgentResult(message=message, intent_result=intent_result, trace=trace)
 
+    # ── awaiting_reason 阶段 ──
+    # 本轮是用户回答上一轮"请告诉我投诉原因"追问的那条消息
+    if has_pending and session.pending_complaint.get("awaiting_reason"):
+        if ci.is_denial(user_message):
+            session.pending_complaint = None
+            session_manager.save(session)
+            return _finish("好的，已取消，不会提交这条投诉。还有什么可以帮你？", "用户取消投诉创建，未写入数据库")
+        reason = visible.strip()
+        if not reason or len(reason) < 2:
+            return _finish(
+                "请描述一下你的投诉原因，比如：商品质量有问题、配送破损、服务态度差等。",
+                "投诉原因为空，继续追问",
+            )
+        order_id = session.pending_complaint.get("order_id") or ""
+        if order_id:
+            from app.database.repositories import ComplaintRepository
+            try:
+                existing = ComplaintRepository().get_latest_by_order_id(order_id)
+                if existing:
+                    cid = existing.get("complaint_id", "")
+                    status = existing.get("complaint_status", "")
+                    session.pending_complaint = None
+                    return _finish(
+                        f"订单 {order_id} 已有投诉工单 {cid}（{status}），无需重复提交。如需跟进进度，直接问我就好。",
+                        "订单已有投诉，阻止重复创建",
+                    )
+            except Exception as exc:
+                logger.warning(f"[complaint-gate] 收集原因后查重失败，降级放行: {exc}")
+        lower_r = reason.lower()
+        if any(k in lower_r for k in ("快递", "物流", "配送", "破损", "损坏")):
+            complaint_type = "物流问题"
+        elif any(k in lower_r for k in ("质量", "坏了", "故障", "不好用", "噪音")):
+            complaint_type = "质量问题"
+        elif any(k in lower_r for k in ("态度", "客服", "服务")):
+            complaint_type = "服务态度"
+        else:
+            complaint_type = "售后问题"
+        draft = {
+            "content": reason[:300],
+            "complaint_type": complaint_type,
+            "order_id": order_id,
+            "awaiting_reason": False,
+        }
+        session.pending_complaint = draft
+        content = "我已整理好你的投诉信息，请核对下方卡片，确认无误后点击提交投诉。"
+        session.add_history("assistant", content)
+        session_manager.save(session)
+        message = Message(role=MessageRole.ASSISTANT, content=content)
+        total_duration = (time.perf_counter() - total_start) * 1000
+        trace = _build_trace(
+            trace_id=trace_id, user_message=user_message, steps=steps,
+            total_duration=total_duration, session=session,
+            intent_result=intent_result, intent_desc=intent_desc,
+            selected_flow="TicketFlow", selected_prompt="ticket_prompt",
+            message=message, extra_reasoning="收集到投诉原因，展示确认卡片，未写入数据库",
+        )
+        log_trace(trace)
+        meta = _build_metadata(
+            session=session, intent_result=intent_result, intent_desc=intent_desc,
+            selected_flow="TicketFlow", selected_prompt="ticket_prompt",
+            trace_id=trace_id, duration_ms=total_duration, session_id=session_id,
+        )
+        meta["pending_complaint"] = {
+            "content":        draft["content"],
+            "complaint_type": draft["complaint_type"],
+            "order_id":       draft["order_id"] or "",
+        }
+        message.metadata = meta
+        return AgentResult(message=message, intent_result=intent_result, trace=trace)
+
+    action = ci.resolve_complaint_gate(has_pending, user_message)
+
     if action == "none":
         # 查询/跟进类，不进入创建流程；交还给后续 route（只读，不建单）
         return None
 
     if action == "ask_confirm":
-        order_id = _extract_order_id(visible)
+        # Use the full message (including injected system context) so the
+        # frontend-supplied order_id ("本轮优先处理订单号") is always found.
+        order_id = _extract_order_id(user_message) or _extract_order_id(visible)
+
+        # Guard: if a complaint already exists for this order, tell the user
+        # instead of creating a duplicate.
+        if order_id:
+            from app.database.repositories import ComplaintRepository
+            try:
+                existing = ComplaintRepository().get_latest_by_order_id(order_id)
+                if existing:
+                    cid = existing.get("complaint_id", "")
+                    status = existing.get("complaint_status", "")
+                    content = (
+                        f"订单 {order_id} 已有投诉工单 {cid}（{status}），"
+                        "无需重复提交。如需跟进进度，直接问我就好。"
+                    )
+                    return _finish(content, "订单已有投诉，阻止重复创建")
+            except Exception as exc:
+                logger.warning(f"[complaint-gate] 首轮查重失败，降级放行: {exc}")
+
+        # 如果用户还没描述投诉原因，先追问，不展示确认卡片
+        if not _has_complaint_reason(user_message):
+            draft = {
+                "content": "",
+                "complaint_type": "",
+                "order_id": order_id or "",
+                "awaiting_reason": True,
+            }
+            session.pending_complaint = draft
+            ask_msg = "好的，请告诉我具体的投诉原因，比如：商品质量有问题、配送破损、服务态度差等。"
+            return _finish(ask_msg, "触发投诉意图但未提供原因，暂存草稿并追问原因")
+
+        # 用户第一轮就给了原因：用其可见输入作为投诉描述（干净、无系统上下文）
+        complaint_content = visible[:300] if visible else ""
+
+        # Infer complaint type from keywords
+        lower_c = complaint_content.lower()
+        if any(k in lower_c for k in ("快递", "物流", "配送", "破损", "损坏")):
+            complaint_type = "物流问题"
+        elif any(k in lower_c for k in ("质量", "坏了", "故障", "不好用", "噪音")):
+            complaint_type = "质量问题"
+        elif any(k in lower_c for k in ("态度", "客服", "服务")):
+            complaint_type = "服务态度"
+        else:
+            complaint_type = "售后问题"
+
         draft = {
-            "content": visible[:200],
-            "complaint_type": "售后",
+            "content": complaint_content,
+            "complaint_type": complaint_type,
             "order_id": order_id,
         }
         session.pending_complaint = draft
-        order_hint = f"，关联订单 {order_id}" if order_id else ""
-        content = (
-            f"我可以帮你提交这条投诉{order_hint}：\n“{draft['content']}”\n\n"
-            "确认要我现在帮你提交吗？回复“确认”我就提交，回复“不用”则取消。"
-        )
+
+        # Frontend will render a confirmation card from metadata;
+        # keep the text message short.
+        content = "我已整理好你的投诉信息，请核对下方卡片，确认无误后点击提交投诉。"
         # 注意：此处不调用任何写库工具
         session.add_history("assistant", content)
         session_manager.save(session)
@@ -402,11 +519,19 @@ async def _handle_complaint_gate(
             message=message, extra_reasoning="识别到创建投诉意图，先向用户确认，未写入数据库",
         )
         log_trace(trace)
-        message.metadata = _build_metadata(
+        # Include pending_complaint in metadata so the frontend can render a
+        # structured confirmation card instead of relying on plain text.
+        meta = _build_metadata(
             session=session, intent_result=intent_result, intent_desc=intent_desc,
             selected_flow="TicketFlow", selected_prompt="ticket_prompt",
             trace_id=trace_id, duration_ms=total_duration, session_id=session_id,
         )
+        meta["pending_complaint"] = {
+            "content":        draft["content"],
+            "complaint_type": draft["complaint_type"],
+            "order_id":       draft["order_id"] or "",
+        }
+        message.metadata = meta
         return AgentResult(message=message, intent_result=intent_result, trace=trace)
 
     if action == "ask_again":
@@ -420,12 +545,34 @@ async def _handle_complaint_gate(
 
     if action == "create":
         draft = session.pending_complaint or {}
-        session.pending_complaint = None
         from app.tools.executors.tool_executor import tool_executor
-        user_id = session.slots.get("user_id") or _extract_user_id_from_history(history)
+        # Final safety net: re-check for existing complaint before writing to DB
+        oid = draft.get("order_id") or ""
+        if oid:
+            from app.database.repositories import ComplaintRepository as CR
+            try:
+                existing_c = CR().get_latest_by_order_id(oid)
+                if existing_c:
+                    cid = existing_c.get("complaint_id", "")
+                    status = existing_c.get("complaint_status", "")
+                    session.pending_complaint = None
+                    return _finish(
+                        f"订单 {oid} 已有投诉工单 {cid}（{status}），已为你跳过重复创建。",
+                        "最终安全网：订单已有投诉，拒绝重复创建",
+                    )
+            except Exception as exc:
+                # 查重失败只降级放行不中断流程，但必须留日志可追溯
+                logger.warning(f"[complaint-gate] 建单前查重失败，降级放行: {exc}")
+        # 前端把"当前登录用户：USRxxx"写在本轮消息的系统上下文里（history 里没有），
+        # 提取 user_id 必须把本轮消息一并扫描，否则投诉会挂到默认用户名下。
+        user_id = (
+            session.slots.get("user_id")
+            or _extract_user_id_from_history([*history, {"role": "user", "content": user_message}])
+        )
         params = {
             "content": draft.get("content", visible[:200]),
             "complaint_type": draft.get("complaint_type", "售后"),
+            "session_id": session_id,
         }
         if draft.get("order_id"):
             params["order_id"] = draft["order_id"]
@@ -433,16 +580,295 @@ async def _handle_complaint_gate(
             params["user_id"] = user_id
         exec_result = await tool_executor.execute_by_name("complaint_create", **params)
         if exec_result.success:
+            # 建单成功才清草稿；失败保留 pending，用户回复【确认】可直接重试
+            session.pending_complaint = None
             data = exec_result.tool_result.data if exec_result.tool_result else {}
             cid = data.get("complaint_id", "")
             content = f"已为你提交投诉{('，工单号 ' + cid) if cid else ''}，我们会尽快处理并同步进度。"
             reasoning = "用户已确认，调用 complaint_create 创建投诉"
         else:
-            content = f"抱歉，投诉提交失败了：{exec_result.error}。你可以稍后再试或前往投诉中心提交。"
-            reasoning = f"用户确认后创建投诉失败: {exec_result.error}"
+            content = f"抱歉，投诉提交失败了：{exec_result.error}。回复【确认】我再试一次，或前往投诉中心提交。"
+            reasoning = f"用户确认后创建投诉失败（草稿已保留可重试）: {exec_result.error}"
         return _finish(content, reasoning)
 
     return None
+
+
+def _extract_refund_reason(user_message: str, history: list[dict]) -> str:
+    """Extract a human-readable refund reason from the current + recent messages."""
+    from app.agents.complaint_intent import user_visible_input as uvi
+    visible = uvi(user_message)
+    # Collect last 4 user turns for context
+    user_turns = [uvi(m.get("content", "")) for m in history if m.get("role") == "user"]
+    recent = " / ".join(t for t in user_turns[-4:] if t)
+    full = (recent + " / " + visible).strip(" / ") if visible not in recent else recent
+    # Strip trivial one-word confirmations that are not reasons
+    if full.strip() in _TRIVIAL_REFUND_REASONS:
+        return ""
+    return full[:200]
+
+
+# 不是退款原因的"发起词"：兜底提取捡回这些词时视为没给原因，继续追问
+_TRIVIAL_REFUND_REASONS = {"退款", "退货", "我要退", "申请退款", "退", ""}
+
+
+# 退款请求里的"填充词"：只是发起动作/礼貌用语/指代订单，不构成"退款原因"。
+# 把它们剥离后若几乎什么都不剩，说明用户还没说明为什么要退，需要追问原因。
+# 注意：不要把"想要""问题"等放入列表，它们也可以是退款原因的一部分
+#   （如"不想要了"、"有问题想退"）。
+_REFUND_FILLER_PATTERN = re.compile(
+    r"我想|我要|申请|发起|帮我|麻烦|一下子|一下|这个|那个|一个|"
+    r"退款|退货|退钱|退换|换货|售后|处理|订单|"
+    r"[请的了吧呢啊，,。.!！？?、\s]"
+)
+
+
+def _has_refund_reason(text: str) -> bool:
+    """Return True when the user actually stated *why* they want a refund.
+
+    仅命中"退款/我要退/帮我处理这个订单"等发起动作+指代，不算原因；
+    剥离填充词后仍有实质内容（如"质量问题""不想要了""买错了"）才算。
+    """
+    from app.agents.complaint_intent import user_visible_input as uvi
+    visible = uvi(text).strip()
+    residual = _REFUND_FILLER_PATTERN.sub("", visible).strip()
+    return len(residual) >= 2
+
+
+# 投诉请求里的"填充词"：只是发起动作/礼貌用语/指代订单，不构成"投诉原因"。
+# 剥离后若几乎什么都不剩，说明用户还没描述为什么要投诉，需要追问。
+_COMPLAINT_FILLER_PATTERN = re.compile(
+    r"我想|我要|申请|发起|帮我|麻烦|一下子|一下|这个|那个|一个|"
+    r"投诉|工单|客诉|售后|登记|记录|提交|报告|处理|订单|"
+    r"[请的了吧呢啊，,。.!！？?、\s]"
+)
+
+
+def _has_complaint_reason(text: str) -> bool:
+    """Return True when the user actually described *why* they want to complain.
+
+    纯触发词（"我要投诉""帮我登记一下"）不算原因；
+    剥离填充词后仍有实质内容（如"质量问题""破损""服务态度差"）才算。
+    """
+    from app.agents.complaint_intent import user_visible_input as uvi
+    visible = uvi(text).strip()
+    residual = _COMPLAINT_FILLER_PATTERN.sub("", visible).strip()
+    return len(residual) >= 3
+
+
+async def _handle_refund_gate(
+    session,
+    user_message: str,
+    intent_result,
+    intent_desc: str,
+    history: list[dict],
+    trace_id: str,
+    total_start: float,
+    steps: list,
+    session_id: str,
+):
+    """退款申请确认闸门 — 与投诉闸门对称。
+
+    流程：
+      1. 用户说 "我要退款" 但没给原因 -> 追问原因 (ask_reason)
+      2. 用户给了原因 -> 暂存 pending_refund，返回确认卡片 (ask_confirm)
+      3. 用户确认 -> 调用 refund_apply 创建退款 (create)
+      4. 用户取消 -> 丢弃草稿 (cancel)
+
+    返回 AgentResult 表示本轮已直接处理；返回 None 表示放行给后续 flow。
+    """
+    from app.agents.complaint_intent import is_confirmation, is_denial, user_visible_input as uvi
+    from app.agents.coordinator import _extract_order_id
+
+    has_pending = session.pending_refund is not None
+
+    def _finish(content: str, reasoning: str):
+        session.add_history("assistant", content)
+        session.clear_flow()
+        session_manager.save(session)
+        message = Message(role=MessageRole.ASSISTANT, content=content)
+        total_duration = (time.perf_counter() - total_start) * 1000
+        trace = _build_trace(
+            trace_id=trace_id, user_message=user_message, steps=steps,
+            total_duration=total_duration, session=session,
+            intent_result=intent_result, intent_desc=intent_desc,
+            selected_flow="RefundFlow", selected_prompt="refund_prompt",
+            message=message, extra_reasoning=reasoning,
+        )
+        log_trace(trace)
+        message.metadata = _build_metadata(
+            session=session, intent_result=intent_result, intent_desc=intent_desc,
+            selected_flow="RefundFlow", selected_prompt="refund_prompt",
+            trace_id=trace_id, duration_ms=total_duration, session_id=session_id,
+        )
+        return AgentResult(message=message, intent_result=intent_result, trace=trace)
+
+    def _existing_refund_notice(oid: str) -> AgentResult | None:
+        """若该订单已有退款申请，返回提示 AgentResult；否则返回 None。"""
+        if not oid:
+            return None
+        from app.database.repositories import RefundRepository as _RRepo
+        try:
+            existing = _RRepo().get_by_order_id(oid)
+        except Exception as exc:
+            logger.warning(f"[refund-gate] 查重失败，降级放行: {exc}")
+            return None
+        if not existing:
+            return None
+        rid = existing.get("refund_id", "")
+        audit = existing.get("audit_status", "")
+        r_status = existing.get("refund_status", "")
+        content = (
+            f"订单 {oid} 已经有退款申请了（退款单号 {rid}，"
+            f"审核状态：{audit}，退款状态：{r_status}）。"
+            "如需跟进进度，直接问我就好。"
+        )
+        return _finish(content, "订单已有退款申请，阻止重复创建")
+
+    def _show_confirm_card(oid: str, reason: str) -> AgentResult:
+        """暂存 pending_refund（等待确认态），返回带 pending_refund 元数据的确认卡片。"""
+        draft = {"order_id": oid or "", "reason": reason, "awaiting_reason": False}
+        session.pending_refund = draft
+        card_text = "我已整理好退款信息，请核对下方卡片，确认无误后点击提交。"
+        session.add_history("assistant", card_text)
+        session_manager.save(session)
+
+        message = Message(role=MessageRole.ASSISTANT, content=card_text)
+        total_duration = (time.perf_counter() - total_start) * 1000
+        trace = _build_trace(
+            trace_id=trace_id, user_message=user_message, steps=steps,
+            total_duration=total_duration, session=session,
+            intent_result=intent_result, intent_desc=intent_desc,
+            selected_flow="RefundFlow", selected_prompt="refund_prompt",
+            message=message, extra_reasoning="收集到退款原因，展示确认卡片，未写入数据库",
+        )
+        log_trace(trace)
+        meta = _build_metadata(
+            session=session, intent_result=intent_result, intent_desc=intent_desc,
+            selected_flow="RefundFlow", selected_prompt="refund_prompt",
+            trace_id=trace_id, duration_ms=total_duration, session_id=session_id,
+        )
+        meta["pending_refund"] = {
+            "order_id": draft["order_id"],
+            "reason":   draft["reason"],
+            "amount":   "",   # filled by frontend from snapshot
+        }
+        message.metadata = meta
+        return AgentResult(message=message, intent_result=intent_result, trace=trace)
+
+    # ── 已有待确认草稿 ──
+    if has_pending:
+        draft = session.pending_refund or {}
+
+        # 用户随时可取消
+        if is_denial(user_message):
+            session.pending_refund = None
+            session_manager.save(session)
+            return _finish(
+                "好的，已取消，不会提交退款申请。还有什么可以帮你？",
+                "用户取消退款申请，未写入数据库",
+            )
+
+        # 阶段一：等待用户回答退款原因（本轮回复就是原因）
+        if draft.get("awaiting_reason"):
+            reason = _extract_refund_reason(user_message, history) or uvi(user_message).strip()
+            # 兜底捡回的原文可能是"退款/申请退款"这类发起词，不算原因，继续追问
+            if reason.strip() in _TRIVIAL_REFUND_REASONS:
+                reason = ""
+            oid = draft.get("order_id", "")
+            # 原因仍为空 → 继续追问
+            if not reason:
+                return _finish(
+                    "请简单描述下退款原因，比如：不想要了、质量问题、买错了、不合适等。",
+                    "退款原因为空，继续追问",
+                )
+            # 拿到原因后，先查重，再展示确认卡片
+            notice = _existing_refund_notice(oid)
+            if notice is not None:
+                session.pending_refund = None
+                return notice
+            return _show_confirm_card(oid, reason)
+
+        # 阶段二：卡片已展示，等待确认
+        if is_confirmation(user_message):
+            from app.tools.executors.tool_executor import tool_executor
+            roid = draft.get("order_id", "")
+            # Final safety net: if refund already exists, just report it
+            if roid:
+                from app.database.repositories import RefundRepository as RRepo
+                try:
+                    existing_rf = RRepo().get_by_order_id(roid)
+                    if existing_rf:
+                        rid = existing_rf.get("refund_id", "")
+                        audit = existing_rf.get("audit_status", "")
+                        session.pending_refund = None
+                        content = (
+                            f"订单 {roid} 已有退款申请（退款单号 {rid}，{audit}），"
+                            "无需重复提交，如有疑问可联系人工客服。"
+                        )
+                        return _finish(content, "最终安全网：订单已有退款，跳过重复创建")
+                except Exception as exc:
+                    logger.warning(f"[refund-gate] 确认后查重失败，降级放行: {exc}")
+            # 与投诉闸门同理：USRxxx 在本轮消息的系统上下文里，提取需含本轮
+            user_id = (
+                session.slots.get("user_id")
+                or _extract_user_id_from_history([*history, {"role": "user", "content": user_message}])
+            )
+            params = {
+                "order_id": draft.get("order_id", ""),
+                "reason": draft.get("reason", "用户申请退款"),
+                "session_id": session_id,
+            }
+            if user_id:
+                params["user_id"] = user_id
+            exec_result = await tool_executor.execute_by_name("refund_apply", **params)
+            if exec_result.success:
+                # 建单成功才清草稿；失败保留 pending，用户回复【确认】可直接重试
+                session.pending_refund = None
+                data = exec_result.tool_result.data if exec_result.tool_result else {}
+                rid = data.get("refund_id", "")
+                content = (
+                    f"退款申请已提交{'，退款单号 ' + rid if rid else ''}。"
+                    "目前处于审核中，预计 1-3 个工作日内处理完成，退款将原路返回。"
+                )
+                reasoning = "用户已确认，调用 refund_apply 创建退款"
+            else:
+                content = f"抱歉，退款申请提交失败了：{exec_result.error}。回复【确认】我再试一次，或联系人工客服。"
+                reasoning = f"用户确认后创建退款失败（草稿已保留可重试）: {exec_result.error}"
+            return _finish(content, reasoning)
+
+        # 卡片已展示但回答不明确：再次询问
+        return _finish(
+            "请问你是确认要提交退款申请，还是暂时取消？回复【确认】或【取消】即可。",
+            "等待用户确认退款，回答不明确，再次询问",
+        )
+
+    # ── 无待确认草稿：首轮进入退款流程 ──
+    visible = uvi(user_message)
+    # Use full message so injected order_id from frontend context is captured
+    order_id = _extract_order_id(user_message) or _extract_order_id(visible)
+
+    # 查重：已有退款则直接告知，不再追问
+    notice = _existing_refund_notice(order_id)
+    if notice is not None:
+        return notice
+
+    if not _has_refund_reason(user_message):
+        # 没给原因 → 暂存"等待原因"草稿并追问；下一轮回复即视为原因
+        session.pending_refund = {
+            "order_id": order_id or "",
+            "reason": "",
+            "awaiting_reason": True,
+        }
+        session_manager.save(session)
+        return _finish(
+            "好的，我来帮你申请退款。请简单告诉我退款原因，比如：不想要了、质量问题、买错了等。",
+            "检测到退款意图但未提供原因，暂存草稿并追问原因",
+        )
+
+    # 首轮就给了原因：整理草稿，直接展示确认卡片
+    reason = _extract_refund_reason(user_message, history)
+    return _show_confirm_card(order_id or "", reason)
 
 
 def _extract_user_id_from_history(history: list[dict] | None) -> str | None:
@@ -500,7 +926,12 @@ async def run(
     if session.pending_complaint is not None:
         from app.agents.complaint_intent import is_confirmation, is_denial
 
-        if is_confirmation(user_message) or is_denial(user_message):
+        # awaiting_reason=True → 正在等用户回答投诉原因，本轮任何非取消回复都是原因，
+        #                        必须交回闸门收集，不能当无关轮次丢弃。
+        # awaiting_reason=False → 卡片已展示等待确认，仅在"确认/取消"时交回闸门。
+        awaiting_reason = bool(session.pending_complaint.get("awaiting_reason"))
+        route_to_gate = awaiting_reason or is_confirmation(user_message) or is_denial(user_message)
+        if route_to_gate:
             pending_intent = IntentResult(
                 intent=IntentType.TICKET,
                 confidence=1.0,
@@ -523,6 +954,39 @@ async def run(
             # 无关轮次：丢弃过期草稿，继续走正常分类/路由（不 return）
             logger.info("[Agent] 放弃未确认投诉草稿，用户转向了其他问题")
             session.pending_complaint = None
+            session_manager.save(session)
+
+    # ===== 待确认退款短路：与投诉短路对称 =====
+    # 两种待处理态：
+    #   awaiting_reason=True  → 正在等用户回答退款原因，本轮任何非取消回复都视为原因，
+    #                           必须交回闸门收集，不能丢弃草稿。
+    #   awaiting_reason=False → 卡片已展示等待确认，仅在"确认/取消"时交回闸门。
+    if session.pending_refund is not None:
+        from app.agents.complaint_intent import is_confirmation, is_denial
+        awaiting_reason = bool(session.pending_refund.get("awaiting_reason"))
+        route_to_gate = awaiting_reason or is_confirmation(user_message) or is_denial(user_message)
+        if route_to_gate:
+            pending_intent = IntentResult(
+                intent=IntentType.REFUND,
+                confidence=1.0,
+                raw_input=user_message,
+            )
+            gate_result = await _handle_refund_gate(
+                session=session,
+                user_message=user_message,
+                intent_result=pending_intent,
+                intent_desc=INTENT_DESCRIPTIONS.get(IntentType.REFUND, "退款/退货"),
+                history=history,
+                trace_id=trace_id,
+                total_start=total_start,
+                steps=steps,
+                session_id=session_id,
+            )
+            if gate_result is not None:
+                return gate_result
+        else:
+            logger.info("[Agent] 放弃未确认退款草稿，用户转向了其他问题")
+            session.pending_refund = None
             session_manager.save(session)
 
     # 用于 Trace 的变量
@@ -836,6 +1300,32 @@ async def run(
                 ))
 
             message = coord_result.message
+            # 协调器对 complaint 域只做只读播报，文案会引导"回复确认提交投诉"，
+            # 但它自己不建单也不挂草稿——用户照做后"确认"会落空断链。
+            # 这里把"明确要创建投诉"的意图落成 pending 草稿，让下一轮"确认"
+            # 直达投诉闸门（卡片→查重→建单）。消息里没有实质投诉内容时不挂：
+            # 后续"确认提交投诉"会被分类为创建意图，走闸门的追问原因分支。
+            if "complaint" in domains and session.pending_complaint is None:
+                from app.agents.coordinator import _should_create_complaint, _extract_order_id
+                from app.agents.complaint_intent import user_visible_input as _uvi_coord
+                if _should_create_complaint(user_message):
+                    coord_visible = _uvi_coord(user_message).strip()
+                    if len(coord_visible) >= 4:
+                        lower_cc = coord_visible.lower()
+                        if any(k in lower_cc for k in ("快递", "物流", "配送", "破损", "损坏")):
+                            coord_type = "物流问题"
+                        elif any(k in lower_cc for k in ("质量", "坏了", "故障", "不好用", "噪音")):
+                            coord_type = "质量问题"
+                        elif any(k in lower_cc for k in ("态度", "客服", "服务")):
+                            coord_type = "服务态度"
+                        else:
+                            coord_type = "售后问题"
+                        session.pending_complaint = {
+                            "content": coord_visible[:300],
+                            "complaint_type": coord_type,
+                            "order_id": _extract_order_id(user_message) or "",
+                            "awaiting_reason": False,
+                        }
             session.add_history("assistant", message.content)
             session.clear_flow()
             session_manager.save(session)
@@ -874,6 +1364,13 @@ async def run(
                 "domains": domains,
                 "workflow_steps": len(coord_result.tool_calls),
             }
+            if session.pending_complaint is not None and "complaint" in domains:
+                _pc = session.pending_complaint
+                message.metadata["pending_complaint"] = {
+                    "content": _pc["content"],
+                    "complaint_type": _pc["complaint_type"],
+                    "order_id": _pc["order_id"] or "",
+                }
             return AgentResult(message=message, intent_result=None, trace=trace)
 
         # ===== 正常模式：Intent Classification =====
@@ -903,6 +1400,22 @@ async def run(
         #           (2) 用户让 AI 创建 —— 必须先确认，再写库
         if flow_name == "ticket":
             gate_result = await _handle_complaint_gate(
+                session=session,
+                user_message=user_message,
+                intent_result=intent_result,
+                intent_desc=intent_desc,
+                history=history,
+                trace_id=trace_id,
+                total_start=total_start,
+                steps=steps,
+                session_id=session_id,
+            )
+            if gate_result is not None:
+                return gate_result
+
+        # ===== 退款创建确认闸门：先问原因，展示卡片，再写库 =====
+        if flow_name == "refund":
+            gate_result = await _handle_refund_gate(
                 session=session,
                 user_message=user_message,
                 intent_result=intent_result,
@@ -1215,6 +1728,36 @@ async def run(
         flow_name = session.current_flow
         selected_flow = INTENT_FLOW_MAP.get(flow_name, "GeneralFlow")
         selected_prompt = FLOW_PROMPT_MAP.get(selected_flow, "unknown")
+
+        # 退款是高风险写操作：FSM/中断路径把槽位收集齐也不能直接进 RefundFlow 写库
+        # （那会绕过确认卡片）。一律改道退款确认闸门：把已收集的 order_id 预填进
+        # "等待原因"草稿，本轮消息作为退款原因处理 → 查重 → 确认卡片 → 用户确认才执行。
+        if flow_name == "refund":
+            from app.agents.coordinator import _extract_order_id as _coord_extract_order_id
+
+            session.pending_refund = {
+                "order_id": (slot_result.slots or {}).get("order_id", "")
+                or _coord_extract_order_id(user_message) or "",
+                "reason": "",
+                "awaiting_reason": True,
+            }
+            session_manager.save(session)
+            gate_intent_result = IntentResult(
+                intent=IntentType.REFUND,
+                confidence=intent_result.confidence if intent_result else 1.0,
+                raw_input=user_message,
+            )
+            return await _handle_refund_gate(
+                session=session,
+                user_message=user_message,
+                intent_result=gate_intent_result,
+                intent_desc=INTENT_DESCRIPTIONS.get(IntentType.REFUND, "退款/售后"),
+                history=history,
+                trace_id=trace_id,
+                total_start=total_start,
+                steps=steps,
+                session_id=session_id,
+            )
 
         # 构建带 Slot 参数的 IntentResult
         effective_intent = IntentType(flow_name) if flow_name in [e.value for e in IntentType] else IntentType.GENERAL

@@ -14,9 +14,29 @@ from app.database.repositories import ProactiveEventRepository
 
 
 class ProactiveEventRepositoryTest(unittest.TestCase):
+    # 本测试直连真实演示库（无独立测试库）：固定 dedup_key 的历史行会让
+    # "unread"断言失败，跑完不清场又会污染演示数据（面板上冒出幽灵事件）。
+    # 因此 setUp/tearDown 都按这些 key 清场，保证幂等且不留痕。
+    TEST_DEDUP_KEYS = (
+        "refund_pending:ORD_TEST_EVENT",
+        "dedup_test:ORD_SAME",
+        "unread_flow:CMP_TEST",
+    )
+
     def setUp(self):
         self.repo = ProactiveEventRepository()
         self.user_id = "USRD13243F290A7"
+        self._cleanup_test_rows()
+
+    def tearDown(self):
+        self._cleanup_test_rows()
+
+    def _cleanup_test_rows(self):
+        for key in self.TEST_DEDUP_KEYS:
+            self.repo.execute(
+                "DELETE FROM proactive_events WHERE user_id = %s AND dedup_key = %s",
+                (self.user_id, key),
+            )
 
     def test_emit_persists_unread_event(self):
         event = self.repo.emit(

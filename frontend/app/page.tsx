@@ -60,7 +60,7 @@ export default function Home() {
         <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch">
           <div className="flex min-w-0 flex-1 flex-col justify-between">
             <div>
-              <div className="inline-flex rounded-full bg-white/12 px-3 py-1 text-xs font-bold text-white/85">ShopEase 抖音商城风格</div>
+              <div className="inline-flex rounded-full bg-white/12 px-3 py-1 text-xs font-bold text-white/85">小易电商助手 抖音商城风格</div>
               <h1 className="mt-4 max-w-2xl text-4xl font-black leading-tight md:text-6xl">
                 边逛边问，AI 导购帮你把服务接住
               </h1>
@@ -80,7 +80,7 @@ export default function Home() {
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,255,255,0.28),transparent_45%)]" />
             <img
               src="/assistant/ai-assistant-avatar.png"
-              alt="ShopEase AI 助手"
+              alt="小易电商助手 AI 助手"
               className="assistant-avatar-float absolute bottom-0 left-1/2 h-[300px] w-[300px] -translate-x-1/2 object-contain"
             />
             <div className="absolute bottom-4 left-4 right-4 rounded-2xl bg-white/92 p-3 text-slate-950 shadow-xl backdrop-blur">

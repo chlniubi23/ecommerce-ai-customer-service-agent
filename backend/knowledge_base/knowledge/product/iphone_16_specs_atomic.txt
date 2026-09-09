@@ -1,0 +1,31 @@
+# 原子知识卡：iPhone 16 系列参数
+
+## 元数据
+- 知识分类：product
+- 文档类型：atomic_knowledge
+- 检索关键词：iPhone16参数、iPhone 16屏幕尺寸、iPhone16配置、iPhone16 Pro参数、iPhone16续航
+- 可回答问题：
+  - iPhone16 屏幕尺寸是多少？
+  - iPhone16 参数介绍
+  - iPhone16 和 iPhone16 Pro 有什么区别？
+
+## 产品定位
+iPhone 16 系列是苹果主流旗舰手机，适合日常通信、拍照录像、移动办公、游戏娱乐和苹果生态用户。标准版强调均衡体验，Pro 版强调更强影像、性能和专业功能。
+
+## 核心参数
+- 芯片：iPhone 16 常见为 A18 芯片；iPhone 16 Pro 系列常见为 A18 Pro 芯片。
+- 屏幕尺寸：iPhone 16 约 6.1 英寸，iPhone 16 Plus 约 6.7 英寸，iPhone 16 Pro 约 6.3 英寸，iPhone 16 Pro Max 约 6.9 英寸。
+- 存储：常见为 128GB、256GB、512GB，Pro Max 可选更高容量，具体以 SKU 为准。
+- 摄像头：标准版适合日常拍摄，Pro 版具备更强长焦、视频和专业影像能力。
+- 续航：Plus 和 Pro Max 通常续航更强，实际续航取决于网络、亮度和应用负载。
+- 接口：USB-C 接口。
+- 系统：iOS，支持 Apple 生态协同。
+
+## 常见问题
+- iPhone16 屏幕多大：标准版约 6.1 英寸，Plus 约 6.7 英寸。
+- Pro 版优势：更强芯片、影像系统、屏幕体验和专业视频能力。
+- 适合谁：标准版适合多数用户，Pro 版适合重度拍摄、游戏和专业创作者。
+
+## Knowledge Agent 回答要求
+- 用户问屏幕尺寸时，必须给出标准版、Plus、Pro、Pro Max 的尺寸差异。
+- 如果用户只问 iPhone16，默认先回答标准版约 6.1 英寸，再补充系列差异。

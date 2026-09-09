@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from app.database.connection import DatabaseAccessError
-from app.database.repositories import AgentAuditRepository, RefundRepository
+from app.database.repositories import AgentAuditRepository, OrderRepository, RefundRepository
 from app.services.proactive import emit_proactive_event
 from app.tools.base_tool import BaseTool, ToolResult
 
@@ -24,6 +24,29 @@ def _record_audit(tool_name: str, kwargs: dict[str, Any], result: dict[str, Any]
         )
     except Exception as exc:
         logger.warning("[RefundTool] audit log failed: %s", exc)
+
+
+def _sync_order_status(order_id: str) -> None:
+    """Ensure the order status reflects an active after-sale process.
+
+    Called when an existing refund is returned — guarantees the orders table
+    is always in sync with the refund state even for records created before
+    this fix was deployed.
+    """
+    try:
+        order_repo = OrderRepository()
+        order = order_repo.get_order(order_id)
+        if not order:
+            return
+        current = order.get("order_status", "")
+        if current not in ("售后中", "已完成", "已关闭"):
+            order_repo.execute(
+                "UPDATE orders SET order_status = '售后中', updated_at = NOW() WHERE order_id = %s",
+                (order_id,),
+            )
+            logger.info("[RefundTool] order %s status synced -> 售后中", order_id)
+    except Exception as exc:
+        logger.warning("[RefundTool] order status sync failed for %s: %s", order_id, exc)
 
 
 class RefundTool(BaseTool):
@@ -64,7 +87,11 @@ class RefundTool(BaseTool):
         try:
             data = repository.get_by_order_id(order_id)
             if not data:
+                # create_refund already updates order_status to '售后中' internally
                 data = repository.create_refund(order_id, reason)
+            else:
+                # Refund already exists -- still sync order status in case it is stale
+                _sync_order_status(order_id)
         except (DatabaseAccessError, ValueError, RuntimeError) as exc:
             error = str(exc)
             _record_audit(self.name, kwargs, {"error": error}, False)
@@ -72,7 +99,6 @@ class RefundTool(BaseTool):
 
         _record_audit(self.name, kwargs, data, True)
 
-        # 动作即事件：退款进入审核后落一条主动事件，用户可在服务面板持续跟进进度。
         emit_proactive_event(
             user_id=data.get("user_id") or kwargs.get("user_id"),
             event_type="refund_pending_detected",

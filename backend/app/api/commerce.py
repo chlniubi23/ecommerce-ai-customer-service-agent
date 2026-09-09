@@ -20,9 +20,11 @@ from app.database.repositories import (
     UserRepository,
     WorkflowRuntimeRepository,
 )
+from app.core.config import get_settings
 from app.models.base_response import error_response, success_response
 
 
+settings = get_settings()
 router = APIRouter(prefix="/commerce", tags=["commerce"])
 
 
@@ -68,12 +70,6 @@ class ComplaintRequest(BaseModel):
     content: str
 
 
-class TaskActionRequest(BaseModel):
-    user_id: str
-    task_id: str
-    action: str = Field(..., min_length=1)
-
-
 SEVERITY_RANK = {
     "urgent": 4,
     "high": 3,
@@ -87,11 +83,7 @@ def _password_hash(password: str) -> str:
 
 
 def _verify_password(stored_hash: str, password: str) -> bool:
-    return (
-        stored_hash == _password_hash(password)
-        or stored_hash == password
-        or (stored_hash.startswith("demo_hash_") and password == "demo123")
-    )
+    return stored_hash == _password_hash(password)
 
 
 def _public_user(user: dict[str, Any]) -> dict[str, Any]:
@@ -368,151 +360,8 @@ def _event_from_insight(insight: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _task_steps_for_insight(insight: dict[str, Any]) -> list[dict[str, Any]]:
-    insight_type = insight["type"]
-    if insight_type in {"logistics_exception", "logistics_follow"}:
-        return [
-            {
-                "step_id": "check_logistics",
-                "title": "核查物流记录",
-                "description": "读取订单物流状态、当前位置、轨迹和预计送达时间。",
-                "status": "ready",
-                "action": "ask_agent",
-                "action_label": "核查物流",
-                "prompt": insight["action_prompt"],
-            },
-            {
-                "step_id": "decide_next_action",
-                "title": "判断下一步",
-                "description": "根据物流状态判断继续等待、催促配送、申请售后或转人工。",
-                "status": "pending",
-                "action": "ask_agent",
-                "action_label": "给出方案",
-                "prompt": f"{insight['action_prompt']}，并把下一步方案按优先级列出来",
-            },
-            {
-                "step_id": "human_if_needed",
-                "title": "必要时转人工",
-                "description": "如果存在异常或长时间未更新，查询人工客服排队并准备转接。",
-                "status": "pending",
-                "action": "ask_agent",
-                "action_label": "转人工评估",
-                "prompt": f"订单 {insight.get('order_id') or ''} 是否需要转人工处理？请查询人工客服状态并说明原因",
-            },
-        ]
-    if insight_type in {"refund_progress", "refund_rejected"}:
-        return [
-            {
-                "step_id": "check_refund",
-                "title": "核查退款状态",
-                "description": "读取退款审核状态、处理状态、金额和关联订单。",
-                "status": "ready",
-                "action": "ask_agent",
-                "action_label": "查看退款",
-                "prompt": insight["action_prompt"],
-            },
-            {
-                "step_id": "prepare_materials",
-                "title": "准备补充材料",
-                "description": "如果退款被拒或卡住，整理用户需要补充的凭证和说明。",
-                "status": "pending",
-                "action": "ask_agent",
-                "action_label": "整理材料",
-                "prompt": f"针对订单 {insight.get('order_id') or ''} 的退款问题，帮我整理需要补充的材料和申诉话术",
-            },
-            {
-                "step_id": "escalate_if_needed",
-                "title": "升级处理",
-                "description": "仍无法解决时，创建投诉或转人工，减少用户反复沟通。",
-                "status": "pending",
-                "action": "ask_agent",
-                "action_label": "升级售后",
-                "prompt": f"如果订单 {insight.get('order_id') or ''} 退款继续卡住，帮我判断应该投诉、转人工还是继续等待",
-            },
-        ]
-    if insight_type == "complaint_follow":
-        return [
-            {
-                "step_id": "check_ticket",
-                "title": "核查工单进度",
-                "description": "读取投诉状态、优先级、处理记录和升级记录。",
-                "status": "ready",
-                "action": "ask_agent",
-                "action_label": "查看工单",
-                "prompt": insight["action_prompt"],
-            },
-            {
-                "step_id": "escalation_decision",
-                "title": "判断是否升级",
-                "description": "根据投诉优先级和处理时间判断是否需要 SupervisorAgent 介入。",
-                "status": "pending",
-                "action": "ask_agent",
-                "action_label": "升级判断",
-                "prompt": f"帮我判断投诉 {insight.get('related_id') or ''} 是否需要升级主管，并说明理由",
-            },
-            {
-                "step_id": "human_transfer",
-                "title": "人工协同",
-                "description": "需要真人处理时，查询人工客服队列并准备沟通摘要。",
-                "status": "pending",
-                "action": "ask_agent",
-                "action_label": "准备转接",
-                "prompt": f"帮我把投诉 {insight.get('related_id') or ''} 整理成人工客服接手摘要，并查询排队情况",
-            },
-        ]
-    return [
-        {
-            "step_id": "summarize_context",
-            "title": "汇总上下文",
-            "description": "整理订单、物流、退款、投诉和权益信息。",
-            "status": "ready",
-            "action": "ask_agent",
-            "action_label": "生成总结",
-            "prompt": insight["action_prompt"],
-        },
-        {
-            "step_id": "recommend_next",
-            "title": "推荐下一步",
-            "description": "给出用户现在最值得做的动作。",
-            "status": "pending",
-            "action": "ask_agent",
-            "action_label": "推荐动作",
-            "prompt": "基于我的当前购物和售后上下文，推荐我下一步最应该处理什么",
-        },
-    ]
-
-
-def _build_task_board(insights_payload: dict[str, Any]) -> dict[str, Any]:
-    tasks = []
-    for insight in insights_payload.get("insights", []):
-        task_id = f"task-{insight['insight_id']}"
-        steps = _task_steps_for_insight(insight)
-        tasks.append(
-            {
-                "task_id": task_id,
-                "source_insight_id": insight["insight_id"],
-                "type": insight["type"],
-                "severity": insight["severity"],
-                "title": insight["title"],
-                "description": insight["description"],
-                "order_id": insight.get("order_id"),
-                "related_id": insight.get("related_id"),
-                "status": "active" if insight["severity"] in {"urgent", "high", "medium"} else "suggested",
-                "progress": 0,
-                "steps": steps,
-                "next_prompt": steps[0]["prompt"] if steps else insight["action_prompt"],
-            }
-        )
-    return {
-        "user_id": insights_payload["user_id"],
-        "summary": insights_payload["summary"],
-        "tasks": tasks,
-        "completion_policy": "每个任务先核查真实业务记录，再给下一步动作；用户确认后继续推进，必要时转人工或升级投诉。",
-    }
-
-
 @router.get("/dashboard")
-async def dashboard():
+def dashboard():
     try:
         repo = ProductRepository()
         data = {
@@ -525,11 +374,11 @@ async def dashboard():
         }
         return success_response(data=data)
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "Business database is unavailable", str(exc))
+        return error_response("DATABASE_ERROR", "Business database is unavailable", str(exc) if settings.app_debug else None)
 
 
 @router.post("/auth/login")
-async def login(request: LoginRequest):
+def login(request: LoginRequest):
     try:
         user = UserRepository().find_by_login(request.login)
         if not user or not _verify_password(user["password_hash"], request.password):
@@ -541,11 +390,11 @@ async def login(request: LoginRequest):
             }
         )
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.post("/auth/register")
-async def register(request: RegisterRequest):
+def register(request: RegisterRequest):
     try:
         user = UserRepository().create_user(
             username=request.username,
@@ -556,60 +405,60 @@ async def register(request: RegisterRequest):
         )
         return success_response(data={"token": user["user_id"], "user": user})
     except Exception as exc:
-        return error_response("REGISTER_FAILED", "注册失败", str(exc))
+        return error_response("REGISTER_FAILED", "注册失败", str(exc) if settings.app_debug else None)
 
 
 @router.get("/users/{user_id}")
-async def get_user(user_id: str):
+def get_user(user_id: str):
     try:
         user = UserRepository().get_by_id(user_id)
         if not user:
             return error_response("USER_NOT_FOUND", "用户不存在")
         return success_response(data=user)
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.post("/users/{user_id}/addresses")
-async def add_address(user_id: str, request: AddressRequest):
+def add_address(user_id: str, request: AddressRequest):
     try:
         address = UserRepository().add_address(user_id=user_id, **request.model_dump())
         return success_response(data=address)
     except Exception as exc:
-        return error_response("ADDRESS_FAILED", "地址保存失败", str(exc))
+        return error_response("ADDRESS_FAILED", "地址保存失败", str(exc) if settings.app_debug else None)
 
 
 @router.get("/categories")
-async def categories():
+def categories():
     try:
         return success_response(data=ProductRepository().list_categories())
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.get("/products")
-async def products(keyword: str = "", category_id: str | None = None, limit: int = 50):
+def products(keyword: str = "", category_id: str | None = None, limit: int = 50):
     try:
         return success_response(
             data=ProductRepository().list_products(keyword=keyword, category_id=category_id, limit=limit)
         )
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.get("/products/{product_id}")
-async def product_detail(product_id: str):
+def product_detail(product_id: str):
     try:
         product = ProductRepository().get_product(product_id)
         if not product:
             return error_response("PRODUCT_NOT_FOUND", "商品不存在")
         return success_response(data=product)
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.post("/orders")
-async def create_order(request: CreateOrderRequest):
+def create_order(request: CreateOrderRequest):
     try:
         order = OrderRepository().create_order(
             user_id=request.user_id,
@@ -618,19 +467,19 @@ async def create_order(request: CreateOrderRequest):
         )
         return success_response(data=order)
     except Exception as exc:
-        return error_response("ORDER_CREATE_FAILED", "创建订单失败", str(exc))
+        return error_response("ORDER_CREATE_FAILED", "创建订单失败", str(exc) if settings.app_debug else None)
 
 
 @router.get("/users/{user_id}/orders")
-async def user_orders(user_id: str):
+def user_orders(user_id: str):
     try:
         return success_response(data=OrderRepository().list_user_orders(user_id))
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.get("/orders/{order_id}")
-async def order_detail(order_id: str):
+def order_detail(order_id: str):
     try:
         order = OrderRepository().get_order(order_id)
         if not order:
@@ -639,30 +488,30 @@ async def order_detail(order_id: str):
         order["refund"] = RefundRepository().get_by_order_id(order_id)
         return success_response(data=order)
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.get("/orders/{order_id}/logistics")
-async def order_logistics(order_id: str):
+def order_logistics(order_id: str):
     try:
         logistics = LogisticsRepository().get_by_order_id(order_id)
         if not logistics:
             return error_response("LOGISTICS_NOT_FOUND", "物流记录不存在")
         return success_response(data=logistics)
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.get("/users/{user_id}/refunds")
-async def refunds(user_id: str):
+def refunds(user_id: str):
     try:
         return success_response(data=RefundRepository().list_by_user(user_id))
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.post("/refunds")
-async def apply_refund(request: RefundRequest):
+def apply_refund(request: RefundRequest):
     try:
         repository = RefundRepository()
         refund = repository.get_by_order_id(request.order_id) or repository.create_refund(
@@ -671,19 +520,19 @@ async def apply_refund(request: RefundRequest):
         )
         return success_response(data=refund)
     except Exception as exc:
-        return error_response("REFUND_FAILED", "退款申请失败", str(exc))
+        return error_response("REFUND_FAILED", "退款申请失败", str(exc) if settings.app_debug else None)
 
 
 @router.get("/users/{user_id}/complaints")
-async def complaints(user_id: str):
+def complaints(user_id: str):
     try:
         return success_response(data=ComplaintRepository().list_by_user(user_id))
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.post("/complaints")
-async def create_complaint(request: ComplaintRequest):
+def create_complaint(request: ComplaintRequest):
     try:
         complaint = ComplaintRepository().create_complaint(
             content=request.content,
@@ -693,11 +542,11 @@ async def create_complaint(request: ComplaintRequest):
         )
         return success_response(data=complaint)
     except Exception as exc:
-        return error_response("COMPLAINT_FAILED", "投诉提交失败", str(exc))
+        return error_response("COMPLAINT_FAILED", "投诉提交失败", str(exc) if settings.app_debug else None)
 
 
 @router.get("/agent/context")
-async def agent_context(
+def agent_context(
     user_id: str | None = None,
     order_id: str | None = None,
     product_id: str | None = None,
@@ -721,11 +570,11 @@ async def agent_context(
                 ]
         return success_response(data=data)
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.get("/agent/insights")
-async def agent_insights(user_id: str):
+def agent_insights(user_id: str):
     try:
         user = UserRepository().get_by_id(user_id)
         if not user:
@@ -735,7 +584,7 @@ async def agent_insights(user_id: str):
         complaints = ComplaintRepository().list_by_user(user_id)
         return success_response(data=_build_agent_insights(user_id, orders, refunds, complaints))
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 def _scan_and_emit_events(
@@ -771,7 +620,7 @@ def _scan_and_emit_events(
 
 
 @router.get("/agent/events")
-async def agent_events(user_id: str, min_severity: str = "medium"):
+def agent_events(user_id: str, min_severity: str = "medium"):
     try:
         user = UserRepository().get_by_id(user_id)
         if not user:
@@ -809,11 +658,11 @@ async def agent_events(user_id: str, min_severity: str = "medium"):
             }
         )
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.post("/agent/events/{event_id}/read")
-async def agent_event_mark_read(event_id: str):
+def agent_event_mark_read(event_id: str):
     """标记主动事件已读：用户看过/处理后不再重复推送（配合去重防刷屏）。"""
     try:
         event = ProactiveEventRepository().get_by_id(event_id)
@@ -822,51 +671,11 @@ async def agent_event_mark_read(event_id: str):
         ProactiveEventRepository().mark_read(event_id)
         return success_response(data={"event_id": event_id, "event_status": "read"})
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
-
-
-@router.get("/agent/tasks")
-async def agent_tasks(user_id: str):
-    try:
-        user = UserRepository().get_by_id(user_id)
-        if not user:
-            return error_response("USER_NOT_FOUND", "用户不存在")
-        orders = OrderRepository().list_user_orders(user_id)
-        refunds = RefundRepository().list_by_user(user_id)
-        complaints = ComplaintRepository().list_by_user(user_id)
-        insights_payload = _build_agent_insights(user_id, orders, refunds, complaints)
-        return success_response(data=_build_task_board(insights_payload))
-    except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
-
-
-@router.post("/agent/tasks/action")
-async def agent_task_action(request: TaskActionRequest):
-    try:
-        user = UserRepository().get_by_id(request.user_id)
-        if not user:
-            return error_response("USER_NOT_FOUND", "用户不存在")
-        tasks_payload = _build_task_board(
-            _build_agent_insights(
-                request.user_id,
-                OrderRepository().list_user_orders(request.user_id),
-                RefundRepository().list_by_user(request.user_id),
-                ComplaintRepository().list_by_user(request.user_id),
-            )
-        )
-        task = next((item for item in tasks_payload["tasks"] if item["task_id"] == request.task_id), None)
-        if not task:
-            return error_response("TASK_NOT_FOUND", "任务不存在或已完成")
-        task["last_action"] = request.action
-        task["progress"] = 50 if request.action == "start" else 100 if request.action == "complete" else task["progress"]
-        task["status"] = "completed" if request.action == "complete" else "active"
-        return success_response(data=task)
-    except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)
 
 
 @router.get("/agent/trace")
-async def agent_trace():
+def agent_trace():
     try:
         return success_response(
             data={
@@ -875,4 +684,4 @@ async def agent_trace():
             }
         )
     except DatabaseAccessError as exc:
-        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc))
+        return error_response("DATABASE_ERROR", "业务数据库暂不可用", str(exc) if settings.app_debug else None)

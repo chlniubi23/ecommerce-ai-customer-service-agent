@@ -10,8 +10,6 @@ import StatusBadge from "@/components/platform/StatusBadge";
 import { Category, commerceApi, getStoredUserId, Product } from "@/services/commerce";
 import { formatCurrency, productImage } from "@/services/format";
 
-const sortTabs = ["综合", "销量", "价格", "新品"];
-
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -34,7 +32,7 @@ export default function ProductsPage() {
       <section className="rounded-[28px] bg-gradient-to-r from-[#ff2442] via-[#ff4d67] to-[#ff7a18] p-5 text-white shadow-[0_18px_55px_rgba(255,36,66,0.22)]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="text-sm font-bold text-white/75">ShopEase Mall</div>
+            <div className="text-sm font-bold text-white/75">小易电商助手 Mall</div>
             <h1 className="mt-1 text-3xl font-black">商城频道</h1>
             <p className="mt-2 text-sm text-white/78">真实类目、品牌、价格、库存与商品图，均由业务数据库实时驱动。</p>
           </div>
@@ -80,14 +78,6 @@ export default function ProductsPage() {
             </button>
           ))}
         </div>
-      </section>
-
-      <section className="mt-4 flex gap-2 overflow-x-auto">
-        {sortTabs.map((tab, index) => (
-          <button key={tab} className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold ${index === 0 ? "bg-slate-950 text-white" : "bg-white text-slate-600"}`}>
-            {tab}
-          </button>
-        ))}
       </section>
 
       <section className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

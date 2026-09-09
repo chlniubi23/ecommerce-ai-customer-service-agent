@@ -1,0 +1,25 @@
+# Python Dependencies - Phase 1 MVP
+
+# Web Framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# OpenAI API Client
+openai==1.58.1
+
+# Environment Variables
+python-dotenv==1.0.1
+
+# Data Validation
+pydantic==2.10.4
+pydantic-settings==2.7.1
+pymysql==1.1.1
+
+# RAG loaders & upload endpoint
+PyPDF2==3.0.1
+python-multipart==0.0.20
+
+# Testing
+pytest==8.3.4
+# Starlette TestClient 依赖（SSE 端点测试用）
+httpx==0.28.1
