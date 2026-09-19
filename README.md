@@ -10,11 +10,13 @@
 - **SSE 真流式**：`POST /api/v1/chat/stream`（start → delta* → done），所有 Flow 共用 `call_llm` 通道零改造获得流式；前端流式失败自动回退整包接口
 - **写路径原子性**：下单（4 连插）、退款（插单+订单状态同步）、投诉（2 连插）单连接事务，失败整体回滚
 - **主动服务**：业务状态扫描 → 去重落库 → 未读事件推送，已读落库不重复打扰
-- **双数据通道**：实时业务事实走 MySQL；平台规则/SOP/商品知识走 KnowledgeAgent + 本地 JSON 向量库（N-gram Hash Embedding 演示实现）
+- **双数据通道**：实时业务事实走 MySQL；平台规则/SOP/商品知识走 KnowledgeAgent + 本地向量库（真实语义 Embedding：默认本地 BGE `BAAI/bge-small-zh-v1.5`，可切 OpenAI 兼容 API；qdrant-client 本地模式持久化）
 
 ## 技术栈
 
-Next.js 15（App Router，React 19，TS strict）· FastAPI · MySQL（pymysql）· OpenAI 兼容 API（DeepSeek 等，60s 超时 + 重试）
+Next.js 15（App Router，React 19，TS strict）· FastAPI · MySQL（pymysql）· OpenAI 兼容 API（DeepSeek 等，60s 超时 + 重试）· RAG：sentence-transformers（本地 BGE）+ qdrant-client 本地模式
+
+> 向量库选型说明：首选 ChromaDB 在本项目 Windows 环境不可用（Rust 绑定 upsert 崩溃），按开发方案回退 qdrant-client 本地模式（纯 Python），`VectorStore` 对外接口不变。Windows 下 torch 锁定 2.6.0 CPU 版（2.14 存在 c10.dll 初始化失败问题）。
 
 ## 快速启动
 
@@ -35,13 +37,19 @@ npm install
 npm run dev   # http://localhost:3000
 ```
 
-知识问答需先构建索引：`cd backend && python rebuild_rag_index.py`
+知识问答需先构建索引（首次会自动下载本地 Embedding 模型约 100MB，可设 `HF_ENDPOINT=https://hf-mirror.com` 加速）：
+
+```powershell
+cd backend
+python rebuild_rag_index.py            # 增量：按文件内容 hash 跳过未变化文件
+python rebuild_rag_index.py --force    # 全量：清空 collection 后重建（收集 TXT/MD）
+```
 
 ## 测试与评测
 
 ```powershell
 cd backend
-python -m pytest tests/ -q              # 82 个单测（mock LLM/DB，可离线运行）
+python -m pytest tests/ -q              # 94 个单测（mock LLM/DB/Embedding，可离线运行）
 python -m evaluation.run_eval           # 路由层评测（离线：规则层 63/63）
 python -m evaluation.run_eval --live    # 在线：含 LLM 层，全量 71/71
 cd ../frontend && npm run build         # 生产构建
@@ -57,4 +65,4 @@ cd ../frontend && npm run build         # 生产构建
 
 ## 已知限制（演示定位）
 
-会话与确认草稿为进程内存态（生产应换 Redis）；无服务端鉴权体系；RAG 为本地哈希向量演示实现（计划替换为真实 Embedding）。详见项目开发文档第 15 节。
+会话与确认草稿为进程内存态（生产应换 Redis）；无服务端鉴权体系；RAG 已升级为真实 Embedding + qdrant 本地向量库，但尚无 hybrid/rerank 与索引版本化。详见项目开发文档第 15 节。

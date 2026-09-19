@@ -15,13 +15,12 @@ from app.agents.agent import run as agent_run
 from app.knowledge_agent.management import KNOWLEDGE_ROOT, knowledge_sync_service
 from app.rag.constants.config import CHUNK_OVERLAP, CHUNK_SIZE, RETRIEVAL_MIN_SCORE, RETRIEVAL_TOP_K
 from app.rag.vectorstore import chroma_store
-from app.rag.vectorstore.chroma_store import EMBEDDING_DIM, STORE_DIR
 from app.router.agent_router import init_routes
 from app.tools.tool_registry import init_tools, tool_registry
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VECTOR_FILE = Path(STORE_DIR) / "vectors.json"
+VECTOR_DIR = Path(chroma_store.store_dir)  # qdrant local 持久化目录
 REPORT_FILE = ROOT.parent / "knowledge_runtime_consistency_report.md"
 
 TARGET_DOCS = [
@@ -57,26 +56,25 @@ def _all_docs() -> list[Path]:
 
 
 def rebuild_vector_index() -> dict[str, Any]:
-    if VECTOR_FILE.exists():
-        VECTOR_FILE.unlink()
-    chroma_store._data = []
+    # ⚠️ 破坏性操作：清空向量库 collection 前请先备份 backend/vector_store/qdrant/ 目录
+    print("WARNING: 即将清空向量库 collection 并重建索引（破坏性操作，请确保已备份 backend/vector_store/qdrant/）")
+    chroma_store.clear()
     sync = knowledge_sync_service.sync_directory(str(Path(KNOWLEDGE_ROOT) / "knowledge"))
     return sync
 
 
 def runtime_stats(sync_result: dict[str, Any] | None = None) -> dict[str, Any]:
     docs = _all_docs()
-    vectors = chroma_store._data
     return {
         "documents_count": len(docs),
-        "chunks_count": len(vectors),
+        "chunks_count": chroma_store.count(),
         "vector_count": chroma_store.count(),
         "knowledge_path": str(Path(KNOWLEDGE_ROOT) / "knowledge"),
-        "vector_store_path": str(VECTOR_FILE),
+        "vector_store_path": str(VECTOR_DIR),
         "retriever_config": {"top_k": RETRIEVAL_TOP_K, "min_score": RETRIEVAL_MIN_SCORE},
-        "embedding_config": {"type": "ngram_hash_embedding", "dimension": EMBEDDING_DIM},
+        "embedding_config": {"type": "qdrant_local_mode", "dimension": chroma_store.dimension},
         "chunk_config": {"chunk_size": CHUNK_SIZE, "chunk_overlap": CHUNK_OVERLAP},
-        "index_version": "Enterprise Knowledge Base V1 / vectors.json rebuilt",
+        "index_version": "Enterprise Knowledge Base / qdrant local cosine",
         "cwd": os.getcwd(),
         "sync_result": sync_result or {},
     }
@@ -86,9 +84,8 @@ def document_diagnostics() -> dict[str, Any]:
     docs = _all_docs()
     by_name = {path.name: path for path in docs}
     chunk_counts: dict[str, int] = {}
-    for item in chroma_store._data:
-        file_name = (item.get("metadata") or {}).get("file_name", "unknown")
-        chunk_counts[file_name] = chunk_counts.get(file_name, 0) + 1
+    for name in by_name:
+        chunk_counts[name] = len(chroma_store.get_by_file_name(name))
     return {
         "documents": [str(path) for path in docs],
         "targets": {
@@ -215,7 +212,7 @@ def build_report(
         "- 根因一：前端客服中心通过 `/api/v1/chat` 进入旧 Agent Runtime，消息被拼接业务上下文后，KnowledgeFlow 未抽取真实用户问题，导致运行时检索 Query 与 Validation Suite 不一致。",
         "- 根因二：`Settings.Config.env_file` 使用相对 `.env`，当从项目根目录直接运行 Python/工具脚本时会退回默认配置，形成运行时配置漂移。",
         "- 根因三：`macbook_air_m4.md` 正式知识文档内容过少，缺少芯片、内存、存储、屏幕、重量、续航、接口等核心参数，导致即使命中文档也无法完整回答。",
-        "- 修复后：Validation、FrontEnd Chat、Knowledge Agent、Retriever、Knowledge Search Tool 统一使用 `backend/knowledge_base/knowledge` 与 `backend/vector_store/vectors.json`。",
+        "- 修复后：Validation、FrontEnd Chat、Knowledge Agent、Retriever、Knowledge Search Tool 统一使用 `backend/knowledge_base/knowledge` 与 `backend/vector_store/qdrant/`（qdrant 本地模式持久化）。",
         "",
         "## Knowledge Runtime Statistics",
         "### Before",
@@ -252,7 +249,7 @@ def build_report(
             "- `backend/app/core/config.py`：将 `.env` 加载路径固定为后端绝对路径，消除启动目录差异。",
             "- `backend/app/flows/knowledge.py`：KnowledgeFlow 从前端上下文包中抽取 `[用户请求]`，统一检索 Query。",
             "- `backend/knowledge_base/knowledge/product/macbook_air_m4.md`：补齐 MacBook Air M4 企业知识文档核心参数。",
-            "- `backend/vector_store/vectors.json`：基于 Enterprise Knowledge Base V1 重新构建索引，清除旧 Chunk 污染。",
+            "- `backend/vector_store/qdrant/`：向量 collection 清空后基于 Enterprise Knowledge Base 重新构建索引，清除旧 Chunk 污染。",
             "",
             "## Verification Results",
         ]
@@ -295,7 +292,7 @@ def build_report(
     lines.extend(
         [
             "## Final Confirmation",
-            "- Validation Environment: Enterprise Knowledge Base V1 / `backend/vector_store/vectors.json`",
+            "- Validation Environment: Enterprise Knowledge Base / `backend/vector_store/qdrant/` (qdrant local cosine)",
             "- FrontEnd Environment: `/api/v1/chat` -> `KnowledgeFlow` -> `KnowledgeWorkflow` -> `knowledge_search` -> same Retriever and same vector store",
             "- Knowledge Agent Environment: `KnowledgeWorkflow` -> `KnowledgeSearchTool` -> `RetrievalService` -> same vector store",
             "- 结论：Validation 环境、FrontEnd 环境、Knowledge Agent 环境已统一到同一个知识目录、同一个向量索引和同一个检索工具入口。",

@@ -27,7 +27,7 @@ class ProductionArchitectureRegistry:
     knowledge_entry: str = "KnowledgeFlow -> KnowledgeWorkflow -> KnowledgeAgent"
     knowledge_tool: str = "knowledge_search"
     retriever: str = "app.rag.services.retrieval_service"
-    vector_store: str = "backend/vector_store/vectors.json"
+    vector_store: str = "backend/vector_store/qdrant/ (qdrant-client local mode, cosine)"
     evaluation_suite: str = "backend/evaluation (routing eval, offline/live)"
     production_agents: tuple[str, ...] = (
         "ProductAgent",
