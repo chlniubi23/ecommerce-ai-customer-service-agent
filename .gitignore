@@ -32,12 +32,15 @@ backend/uploads/
 backend/vector_store/
 backend/workflow_store/
 backend/workflow_repository/
+backend/.pytest_tmp/
+backend/.venv/
 
 # Logs and local artifacts
 *.log
 *.tmp
 .codex_logs/
 knowledge_quality_validation_phase_8_6.json
+backend/golden_question_report.json
 backend/backend_server.log
 backend/backend_server.err.log
 frontend/frontend_server.log
