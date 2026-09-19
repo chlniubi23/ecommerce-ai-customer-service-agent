@@ -19,13 +19,15 @@ RetrievalService - 知识库检索服务
 
 import logging
 from dataclasses import dataclass, field
+from app.rag.constants.config import RETRIEVAL_MIN_SCORE
 from app.rag.vectorstore import chroma_store
 
 logger = logging.getLogger(__name__)
 
 # 默认参数
 DEFAULT_TOP_K = 5
-MIN_RELEVANCE_SCORE = 0.01  # 低于此阈值的结果视为不相关 (N-gram Hash Embedding 分数较低)
+# 低于此阈值的结果视为不相关（读 Settings.retrieval_min_score，黄金问题校准后回填）
+MIN_RELEVANCE_SCORE = RETRIEVAL_MIN_SCORE
 
 
 @dataclass

@@ -17,6 +17,7 @@ KnowledgePipeline - 知识预处理管线
 
 import time
 import logging
+from app.rag.constants.config import CHUNK_SIZE, CHUNK_OVERLAP
 from app.rag.schemas.document import UploadedFile, Document, Chunk, PipelineResult
 from app.rag.loaders import load_document
 from app.rag.chunkers import RecursiveChunker
@@ -34,10 +35,11 @@ class KnowledgePipeline:
         result = pipeline.run(uploaded_file)
     """
 
-    def __init__(self, chunk_size: int = 500, chunk_overlap: int = 100):
+    def __init__(self, chunk_size: int | None = None, chunk_overlap: int | None = None):
+        # 统一切片配置：默认读 Settings（CHUNK_SIZE / CHUNK_OVERLAP），与 rebuild 脚本 / API upload 一致
         self.chunker = RecursiveChunker(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
+            chunk_size=chunk_size or CHUNK_SIZE,
+            chunk_overlap=chunk_overlap or CHUNK_OVERLAP,
         )
 
     def run(self, uploaded_file: UploadedFile) -> PipelineResult:

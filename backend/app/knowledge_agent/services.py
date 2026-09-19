@@ -173,7 +173,7 @@ class KnowledgeWorkflow:
     def __init__(self, agent: KnowledgeAgent):
         self.agent = agent
 
-    async def run(self, query: str, *, history: list[dict] | None = None, workflow_id: str = "knowledge_workflow", session_id: str = "", category: str = "", top_k: int = 5, min_score: float = 0.01) -> KnowledgeWorkflowResult:
+    async def run(self, query: str, *, history: list[dict] | None = None, workflow_id: str = "knowledge_workflow", session_id: str = "", category: str = "", top_k: int = 5, min_score: float | None = None) -> KnowledgeWorkflowResult:
         from app.knowledge_agent.models import KnowledgeCategory
 
         intent_event = decision_tracer.trace_event(

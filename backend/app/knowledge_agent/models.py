@@ -94,7 +94,8 @@ class KnowledgeSearchRequest:
     session_id: str = ""
     category: KnowledgeCategory | None = None
     top_k: int = 5
-    min_score: float = 0.01
+    # None 表示未显式指定，由 knowledge_search 工具读 Settings.retrieval_min_score
+    min_score: float | None = None
     history: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 

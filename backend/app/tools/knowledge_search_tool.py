@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.core.config import get_settings
 from app.database.repositories import AgentAuditRepository
 from app.knowledge_agent.context import knowledge_context_builder
 from app.knowledge_agent.query_understanding import knowledge_query_understanding
@@ -42,7 +43,13 @@ class KnowledgeSearchTool(BaseTool):
     async def execute(self, **kwargs: Any) -> ToolResult:
         query = str(kwargs.get("query", "")).strip()
         top_k = int(kwargs.get("top_k") or 5)
-        min_score = float(kwargs.get("min_score") or 0.01)
+        # 未显式传入时读 Settings.retrieval_min_score（黄金问题校准值）
+        raw_min_score = kwargs.get("min_score")
+        min_score = (
+            float(raw_min_score)
+            if raw_min_score is not None and raw_min_score != ""
+            else get_settings().retrieval_min_score
+        )
         history = kwargs.get("history") or []
         allow_llm = bool(kwargs.get("allow_llm", True))
 
@@ -53,8 +60,7 @@ class KnowledgeSearchTool(BaseTool):
         # 顺序很关键：
         # 1) 先用对话历史做指代消解（"那要多久啊" + 上文"退款" → "退款 那要多久啊"），
         #    否则裸追问句无任何可识别术语。
-        # 2) 再在消解后的句子上跑查询理解，把口语改写为知识库正式术语 + 推断分类，
-        #    解决 N-gram Embedding 字面匹配缺陷。
+        # 2) 再在消解后的句子上跑查询理解，把口语改写为知识库正式术语 + 推断分类。
         history_list = history if isinstance(history, list) else []
         context_resolved_query = build_retrieval_query(query, history_list)
         understanding = await knowledge_query_understanding.understand(
@@ -70,12 +76,16 @@ class KnowledgeSearchTool(BaseTool):
         # 主分类用于查询扩展/排序：优先显式，其次 LLM，再次关键词
         category = explicit_category or understanding.category or keyword_category
 
-        # 检索 Query：优先用查询理解的 expanded_query（已含口语改写 + 分类扩展）
+        # 检索 Query：真实语义 Embedding 下，向量检索只用"上下文消解后的自然语言 query"，
+        # 词表拼接（_expand_query_terms / 查询理解的分类扩展）会稀释查询向量，
+        # 因此仅用于 _rank_chunks_for_query 的规则重排加分与 Trace 展示。
+        retrieval_query = context_resolved_query
         expanded_query = understanding.expanded_query or _expand_query_terms(context_resolved_query, category)
+        lexical_boost_terms = _lexical_boost_terms(expanded_query)
         retrieval_window = max(top_k * 8, 30)
 
         retrieval = retrieval_service.query_knowledge(
-            question=expanded_query,
+            question=retrieval_query,
             top_k=retrieval_window,
             min_score=min_score,
         )
@@ -87,7 +97,7 @@ class KnowledgeSearchTool(BaseTool):
                 chunks = category_chunks
             else:
                 fallback = retrieval_service.query_knowledge(
-                    question=expanded_query,
+                    question=retrieval_query,
                     top_k=retrieval_window,
                     min_score=max(0.0, min_score * 0.5),
                 )
@@ -95,17 +105,19 @@ class KnowledgeSearchTool(BaseTool):
 
         chunks = _expand_same_source_chunks(query, chunks)
         chunks = _rank_chunks_for_query(
-            query, chunks, category, product_target=understanding.product_target,
+            query, chunks, category,
+            product_target=understanding.product_target,
+            lexical_boost_terms=lexical_boost_terms,
         )[:top_k]
 
         search_result = knowledge_context_builder.build(
             query=query,
-            retrieval_query=expanded_query,
+            retrieval_query=retrieval_query,
             chunks=chunks,
         )
         data = {
             "query": query,
-            "retrieval_query": expanded_query,
+            "retrieval_query": retrieval_query,
             "inferred_category": category,
             "query_understanding": understanding.to_dict(),
             "documents": search_result.documents,
@@ -127,6 +139,7 @@ class KnowledgeSearchTool(BaseTool):
                 **search_result.debug_info,
                 "inferred_category": category,
                 "expanded_query": expanded_query,
+                "lexical_boost_terms": lexical_boost_terms,
                 "query_understanding": understanding.to_dict(),
             },
         }
@@ -176,6 +189,29 @@ def _expand_query_terms(query: str, category: str) -> str:
     return f"{query} {extra}".strip()
 
 
+def _lexical_boost_terms(expanded_query: str) -> list[str]:
+    """从扩展 Query 中提取词表，作为规则重排的加分项（不进向量检索）。"""
+    seen: set[str] = set()
+    terms: list[str] = []
+    for token in expanded_query.replace("，", " ").split():
+        token = token.strip().lower()
+        if token and token not in seen:
+            seen.add(token)
+            terms.append(token)
+    return terms
+
+
+def _dedupe_terms(terms: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for term in terms:
+        key = term.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(key)
+    return out
+
+
 def _resolve_allowed_categories(explicit_category: str, llm_category: str, keyword_category: str) -> list[str]:
     """收敛出允许的知识分类集合。
 
@@ -209,10 +245,17 @@ def _rank_chunks_for_query(
     chunks: list[dict[str, Any]],
     category: str = "",
     product_target: str = "",
+    lexical_boost_terms: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Stabilize runtime ranking for explicit enterprise knowledge questions."""
+    """Stabilize runtime ranking for explicit enterprise knowledge questions.
+
+    lexical_boost_terms 来自 _expand_query_terms / 查询理解的扩展词表，
+    仅作为规则重排加分项，不再拼进向量检索 query（语义 Embedding 下会稀释查询向量）。
+    """
     lowered_query = query.lower()
-    active_terms = _active_terms(lowered_query, category)
+    active_terms = _dedupe_terms(
+        _active_terms(lowered_query, category) + list(lexical_boost_terms or [])
+    )
     # 优先用查询理解传入的商品型号（覆盖口语别名场景），否则从字面提取
     resolved_product = product_target or _product_target(lowered_query)
     target_source = _target_source_for_query(lowered_query)
@@ -347,21 +390,20 @@ def _expand_same_source_chunks(query: str, chunks: list[dict[str, Any]]) -> list
         return chunks
 
     by_id = {chunk.get("chunk_id"): dict(chunk) for chunk in chunks}
-    for item in chroma_store._data:
-        metadata = item.get("metadata", {}) or {}
-        file_name = str(metadata.get("file_name", ""))
-        if file_name not in matched_sources:
-            continue
-        chunk_id = item.get("id")
-        if chunk_id in by_id:
-            continue
-        by_id[chunk_id] = {
-            "chunk_id": chunk_id,
-            "content": item.get("content", ""),
-            "metadata": metadata,
-            "distance": 1.0,
-            "relevance_score": 0.0,
-        }
+    for name in matched_sources:
+        # 同源扩展：通过 VectorStore 公开方法取同文件全部 chunks（不再访问私有 _data）
+        for item in chroma_store.get_by_file_name(name):
+            metadata = item.get("metadata", {}) or {}
+            chunk_id = item.get("chunk_id")
+            if chunk_id in by_id:
+                continue
+            by_id[chunk_id] = {
+                "chunk_id": chunk_id,
+                "content": item.get("content", ""),
+                "metadata": metadata,
+                "distance": 1.0,
+                "relevance_score": 0.0,
+            }
     return list(by_id.values())
 
 
