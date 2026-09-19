@@ -1,98 +1,80 @@
 """
-向量存储 - 纯 Python 实现
+向量存储 - 真实 Embedding + 本地向量数据库持久化
+
+⚠️ 存储底座回退说明（重要，写入交付报告）：
+- 首选方案为 ChromaDB PersistentClient，但在本项目 Windows 环境验证失败：
+  * chromadb 1.5.9：Rust 绑定在 upsert 时触发 Windows fatal exception: access violation；
+  * chromadb 1.0.15：启动即 pyo3_runtime.PanicException；
+  * chromadb 0.5.x：依赖 chroma-hnswlib，Python 3.12 无预编译轮子且本机无 C++ 构建环境。
+- 按《开发 Prompt》第四节回退方案，改用 qdrant-client 本地模式（纯 Python 实现），
+  VectorStore 对外接口与返回结构保持不变。此决策同步写入 README 与提交说明。
 
 职责：
-- 提供 add_chunks() 存入向量
-- 提供 query() 余弦相似度检索
-- N-gram Hash Embedding (纯 Python，无需 torch/onnxruntime/chromadb 原生依赖)
-- JSON 文件持久化
+- 提供 add_chunks() 存入向量（真实 Embedding + upsert 幂等）
+- 提供 query() cosine 语义检索（支持 metadata where 过滤）
+- qdrant-client 本地模式持久化（目录 backend/vector_store/qdrant/）
+- Embedding 由 embedding_provider 工厂按配置提供（local BGE / openai 兼容 API）
 
 架构位置：
 - rag/vectorstore/ 层
 - 被 pipeline (存储) 和 retrieval_service (检索) 调用
 
-扩展规划：
-- Phase 5.3: 替换为 ChromaDB + SentenceTransformer (需修复本地 DLL 环境)
-- Phase 5.4: 切换 embedding 模型 (OpenAI / BGE)
+对外契约（保持不变）：
+- add_chunks(chunks) -> int
+- query(query_text, top_k, where) -> list[{chunk_id, content, metadata, distance, relevance_score}]
+- count() -> int
+- delete_by_file_id(file_id) -> None
+- 新增: get_by_file_name(file_name) -> list[dict]（同源扩展用）
+- 新增: clear() -> int（rebuild --force / 诊断脚本清空 collection 用，返回清除前数量）
+
+历史：
+- 最初实现为 N-gram Hash Embedding + JSON 持久化（vectors.json），已替换；
+  旧 vectors.json 文件保留在磁盘作为备份，不再读取。
 """
 
-import os
-import re
-import json
-import math
-import hashlib
 import logging
 import threading
-from collections import Counter
+import uuid
+from pathlib import Path
+
+from qdrant_client import QdrantClient, models
+
+from app.core.config import BACKEND_ROOT, get_settings
 from app.rag.schemas.document import Chunk
+from app.rag.vectorstore.embedding_provider import EmbeddingProvider, get_embedding_provider
 
 logger = logging.getLogger(__name__)
 
-# ===== Embedding 维度 =====
-EMBEDDING_DIM = 384
+# 持久化目录（默认 backend/vector_store/qdrant，可用 QDRANT_PERSIST_DIR 覆盖）
+STORE_DIR = str((BACKEND_ROOT / get_settings().qdrant_persist_dir).resolve())
+
+# qdrant 点 ID 只接受 uint / UUID：用 uuid5 把字符串 chunk_id 确定性映射为 UUID，
+# 保证 upsert 幂等（同 chunk_id 覆盖同一条记录）
+_POINT_NS = uuid.UUID("b16f3b2a-0f5e-4c2d-9a7e-6d3c8f1a4b52")
 
 
-def embed_text(text: str, dim: int = EMBEDDING_DIM) -> list[float]:
-    """
-    N-gram Hash Embedding
-
-    纯 Python 实现，无需 torch / onnxruntime。
-    使用字符 n-gram (2,3,4) + 词 n-gram 的哈希映射到固定维度向量。
-    适用于中英文混合文本的相似度计算。
-    """
-    text = text.lower().strip()
-    text = re.sub(r'\s+', ' ', text)
-
-    ngrams: list[str] = []
-    for n in range(2, 5):
-        for i in range(len(text) - n + 1):
-            ngrams.append(text[i:i + n])
-
-    words = text.split()
-    ngrams.extend(words)
-    for i in range(len(words) - 1):
-        ngrams.append(f"{words[i]} {words[i+1]}")
-
-    if not ngrams:
-        return [0.0] * dim
-
-    vec = [0.0] * dim
-    counts = Counter(ngrams)
-    for gram, count in counts.items():
-        h = int(hashlib.md5(gram.encode('utf-8')).hexdigest(), 16)
-        idx = h % dim
-        sign = 1.0 if (h // dim) % 2 == 0 else -1.0
-        vec[idx] += sign * math.log1p(count)
-
-    norm = math.sqrt(sum(v * v for v in vec))
-    if norm > 0:
-        vec = [v / norm for v in vec]
-    return vec
+def _point_id(chunk_id: str) -> str:
+    return str(uuid.uuid5(_POINT_NS, chunk_id))
 
 
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """计算两个向量的余弦相似度"""
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(x * x for x in b))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
-
-
-# 持久化目录
-STORE_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
-    "vector_store"
-)
+def _to_filter(where: dict | None) -> models.Filter | None:
+    """沿用旧语义：{key: value} 精确匹配 → qdrant payload 过滤条件"""
+    if not where:
+        return None
+    return models.Filter(
+        must=[
+            models.FieldCondition(key=key, match=models.MatchValue(value=value))
+            for key, value in where.items()
+        ]
+    )
 
 
 class VectorStore:
     """
-    纯 Python 向量存储
+    本地向量存储（qdrant-client local mode）
 
-    使用 N-gram Hash Embedding + 余弦相似度检索。
-    JSON 文件持久化，线程安全。
+    cosine 距离 + payload 过滤，持久化到磁盘目录，单进程内线程安全
+    （qdrant 本地模式内部持锁，此锁仅保护批量写序列）。
 
     Usage:
         store = VectorStore()
@@ -100,43 +82,54 @@ class VectorStore:
         results = store.query("问题", top_k=5)
     """
 
-    def __init__(self, store_dir: str = STORE_DIR):
-        self.store_dir = store_dir
-        self._store_file = os.path.join(store_dir, "vectors.json")
+    def __init__(
+        self,
+        persist_dir: str | None = None,
+        collection_name: str | None = None,
+        provider: EmbeddingProvider | None = None,
+    ):
+        settings = get_settings()
+        self.store_dir = persist_dir or str((BACKEND_ROOT / settings.qdrant_persist_dir).resolve())
+        self.collection_name = collection_name or settings.qdrant_collection
+        self._provider = provider
         self._lock = threading.Lock()
 
-        os.makedirs(store_dir, exist_ok=True)
-
-        # 内存数据: list[{id, content, metadata, embedding}]
-        self._data: list[dict] = []
-        self._load()
+        Path(self.store_dir).mkdir(parents=True, exist_ok=True)
+        self._client = QdrantClient(path=self.store_dir)
+        if not self._client.collection_exists(self.collection_name):
+            self._client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=models.VectorParams(
+                    size=self.dimension,
+                    distance=models.Distance.COSINE,
+                ),
+            )
 
         logger.info(
-            f"[VECTORSTORE] 初始化: dir={store_dir}, count={len(self._data)}"
+            "[VECTORSTORE] 初始化 qdrant local: dir=%s, collection=%s, count=%d",
+            self.store_dir, self.collection_name, self.count(),
         )
 
-    def _load(self) -> None:
-        """从 JSON 加载"""
-        if os.path.exists(self._store_file):
-            try:
-                with open(self._store_file, "r", encoding="utf-8") as f:
-                    self._data = json.load(f)
-                logger.info(f"[VECTORSTORE] 加载 {len(self._data)} 条记录")
-            except Exception as e:
-                logger.error(f"[VECTORSTORE] 加载失败: {e}")
-                self._data = []
+    # -------------------- 内部 --------------------
 
-    def _save(self) -> None:
-        """持久化到 JSON"""
-        try:
-            with open(self._store_file, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, ensure_ascii=False)
-        except Exception as e:
-            logger.error(f"[VECTORSTORE] 持久化失败: {e}")
+    @property
+    def dimension(self) -> int:
+        """当前 Embedding 维度"""
+        return self._get_provider().dimension
+
+    def _get_provider(self) -> EmbeddingProvider:
+        if self._provider is None:
+            self._provider = get_embedding_provider()
+        return self._provider
+
+    # -------------------- 对外接口 --------------------
 
     def add_chunks(self, chunks: list[Chunk]) -> int:
         """
-        将 Chunk 列表存入向量库
+        将 Chunk 列表存入向量库（upsert 语义）
+
+        同 chunk_id 重复入库覆盖旧记录（修复旧实现"重复运行 rebuild
+        脚本静默跳过、内容更新不生效"的问题）。
 
         Args:
             chunks: Chunk 列表
@@ -147,30 +140,25 @@ class VectorStore:
         if not chunks:
             return 0
 
+        provider = self._get_provider()
+        embeddings = provider.embed_documents([chunk.content for chunk in chunks])
+        points = [
+            models.PointStruct(
+                id=_point_id(chunk.chunk_id),
+                vector=embedding,
+                payload={"chunk_id": chunk.chunk_id, "content": chunk.content, **(chunk.metadata or {})},
+            )
+            for chunk, embedding in zip(chunks, embeddings)
+        ]
+
         with self._lock:
-            existing_ids = {d["id"] for d in self._data}
-
-            added = 0
-            for chunk in chunks:
-                if chunk.chunk_id in existing_ids:
-                    continue
-
-                embedding = embed_text(chunk.content)
-                self._data.append({
-                    "id": chunk.chunk_id,
-                    "content": chunk.content,
-                    "metadata": chunk.metadata,
-                    "embedding": embedding,
-                })
-                added += 1
-
-            self._save()
+            self._client.upsert(collection_name=self.collection_name, points=points)
 
         logger.info(
-            f"[VECTORSTORE] 存入 {added} 个 chunks, "
-            f"总量: {len(self._data)}"
+            "[VECTORSTORE] upsert %d 个 chunks, 向量库总量: %d",
+            len(points), self.count(),
         )
-        return added
+        return len(points)
 
     def query(
         self,
@@ -179,7 +167,7 @@ class VectorStore:
         where: dict | None = None,
     ) -> list[dict]:
         """
-        余弦相似度检索
+        语义向量检索（cosine 相似度）
 
         Args:
             query_text: 查询文本
@@ -187,66 +175,108 @@ class VectorStore:
             where: 可选的 metadata 过滤 (key=value 精确匹配)
 
         Returns:
-            list[dict]: 检索结果列表
+            list[dict]: [{chunk_id, content, metadata, distance, relevance_score}]
         """
-        if not self._data:
+        total = self.count()
+        if total == 0:
             return []
 
-        query_embedding = embed_text(query_text)
+        provider = self._get_provider()
+        query_embedding = provider.embed_query(query_text)
 
-        # 计算相似度
-        scored = []
-        for item in self._data:
-            # metadata 过滤
-            if where:
-                match = all(
-                    item.get("metadata", {}).get(k) == v
-                    for k, v in where.items()
-                )
-                if not match:
-                    continue
+        response = self._client.query_points(
+            collection_name=self.collection_name,
+            query=query_embedding,
+            limit=max(1, min(int(top_k), total)),
+            query_filter=_to_filter(where),
+            with_payload=True,
+        )
 
-            sim = _cosine_similarity(query_embedding, item["embedding"])
-            # cosine similarity → distance (for compatibility)
-            distance = 1.0 - sim
-            scored.append({
-                "chunk_id": item["id"],
-                "content": item["content"],
-                "metadata": item.get("metadata", {}),
-                "distance": round(distance, 4),
-                "relevance_score": round(max(0.0, sim), 4),
+        results: list[dict] = []
+        for point in response.points:
+            payload = point.payload or {}
+            score = float(point.score or 0.0)
+            results.append({
+                "chunk_id": payload.get("chunk_id", str(point.id)),
+                "content": payload.get("content", ""),
+                "metadata": {
+                    key: value for key, value in payload.items()
+                    if key not in ("chunk_id", "content")
+                },
+                "distance": round(max(0.0, 1.0 - score), 4),
+                "relevance_score": round(max(0.0, score), 4),
             })
-
-        # 按相关度降序排列
-        scored.sort(key=lambda x: x["relevance_score"], reverse=True)
-        results = scored[:top_k]
 
         if results:
             logger.info(
-                f"[VECTORSTORE] 检索 top_{top_k}: "
-                f"找到 {len(results)} 个结果, "
-                f"最高相关度: {results[0]['relevance_score']:.4f}"
+                "[VECTORSTORE] 检索 top_%d: 找到 %d 个结果, 最高相关度: %.4f",
+                top_k, len(results), results[0]["relevance_score"],
             )
         else:
             logger.info("[VECTORSTORE] 无结果")
-
         return results
 
     def count(self) -> int:
         """返回向量库中的文档数量"""
-        return len(self._data)
+        return self._client.count(collection_name=self.collection_name, exact=True).count
 
     def delete_by_file_id(self, file_id: str) -> None:
         """按 file_id 删除所有相关 chunks"""
         with self._lock:
-            before = len(self._data)
-            self._data = [
-                d for d in self._data
-                if d.get("metadata", {}).get("file_id") != file_id
-            ]
-            removed = before - len(self._data)
-            self._save()
-        logger.info(f"[VECTORSTORE] 删除 file_id={file_id} 的 {removed} 个 chunks")
+            before = self.count()
+            self._client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[models.FieldCondition(key="file_id", match=models.MatchValue(value=file_id))]
+                    )
+                ),
+            )
+            removed = before - self.count()
+        logger.info("[VECTORSTORE] 删除 file_id=%s 的 %d 个 chunks", file_id, removed)
+
+    def get_by_file_name(self, file_name: str) -> list[dict]:
+        """
+        按文件名取出全部同源 chunks（无需向量计算）
+
+        供 knowledge_search_tool 的同源扩展使用。
+
+        Returns:
+            list[dict]: [{chunk_id, content, metadata}]
+        """
+        if not file_name:
+            return []
+        points, _offset = self._client.scroll(
+            collection_name=self.collection_name,
+            scroll_filter=models.Filter(
+                must=[models.FieldCondition(key="file_name", match=models.MatchValue(value=file_name))]
+            ),
+            limit=1000,
+            with_payload=True,
+        )
+        items: list[dict] = []
+        for point in points:
+            payload = point.payload or {}
+            items.append({
+                "chunk_id": payload.get("chunk_id", str(point.id)),
+                "content": payload.get("content", ""),
+                "metadata": {
+                    key: value for key, value in payload.items()
+                    if key not in ("chunk_id", "content")
+                },
+            })
+        return items
+
+    def clear(self) -> int:
+        """清空整个 collection（rebuild --force / 诊断脚本使用），返回清除前数量"""
+        with self._lock:
+            before = self.count()
+            self._client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(filter=models.Filter(must=[])),
+            )
+        logger.warning("[VECTORSTORE] collection 已清空 (原 %d 条)", before)
+        return before
 
 
 # 全局单例

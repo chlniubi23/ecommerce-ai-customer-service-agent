@@ -56,6 +56,29 @@ class Settings(BaseSettings):
     mysql_database: str = "ai_agent_commerce_demo"
     mysql_charset: str = "utf8mb4"
 
+    # ========== Embedding 配置 ==========
+    # local: sentence-transformers + BAAI/bge-small-zh-v1.5 本地推理
+    # openai: OpenAI 兼容 Embedding API（需配置 EMBEDDING_API_KEY / EMBEDDING_BASE_URL）
+    embedding_provider: str = "local"
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    embedding_api_key: str = ""    # 仅 provider=openai 时使用
+    embedding_base_url: str = ""   # 仅 provider=openai 时使用
+    embedding_dim: int = 512
+
+    # ========== 向量数据库 (qdrant-client 本地模式) ==========
+    # 注：首选 ChromaDB 在本机 Windows 环境不可用（Rust 绑定崩溃），按方案回退 qdrant 本地模式
+    # 相对 backend/ 的持久化目录
+    qdrant_persist_dir: str = "vector_store/qdrant"
+    qdrant_collection: str = "knowledge"
+
+    # ========== 知识切片 (统一三处入口) ==========
+    chunk_size: int = 500
+    chunk_overlap: int = 100
+
+    # ========== 检索 ==========
+    # 真实 Embedding 的相关性下限（黄金问题校准后回填）
+    retrieval_min_score: float = 0.35
+
     class Config:
         # 指定 .env 文件路径
         env_file = str(BACKEND_ROOT / ".env")

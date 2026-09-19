@@ -19,6 +19,17 @@ pymysql==1.1.1
 PyPDF2==3.0.1
 python-multipart==0.0.20
 
+# RAG: 真实 Embedding + 向量数据库
+# Windows 注意: torch 2.14 在部分机器上 c10.dll 初始化失败(WinError 1114)，
+# 锁定 2.6.0 CPU 版本验证可用；如需重装:
+#   pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+# 模型下载失败时可配置 HF 镜像: HF_ENDPOINT=https://hf-mirror.com
+# 向量库回退决策：首选 ChromaDB 在本机 Windows 不可用（1.5.9 Rust 绑定 upsert 崩溃 /
+# 1.0.15 启动 panic / 0.5.x 需 C++ 编译），按开发方案回退 qdrant-client 本地模式（纯 Python）
+sentence-transformers==6.1.0
+torch==2.6.0
+qdrant-client==1.19.1
+
 # Testing
 pytest==8.3.4
 # Starlette TestClient 依赖（SSE 端点测试用）
