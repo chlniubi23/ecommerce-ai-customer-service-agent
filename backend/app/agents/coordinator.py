@@ -21,6 +21,8 @@ import time
 from typing import Any
 
 from app.agents.complaint_intent import is_followup_request
+from app.agents.context_facts import extract_context_facts, format_snapshot_section
+from app.agents.enhanced_flow import enhanced_tool_execute
 from app.database.connection import DatabaseAccessError
 from app.database.repositories import ComplaintRepository
 from app.flows.base import FlowResult
@@ -89,6 +91,11 @@ SYNTHESIZE_PROMPT = """你是电商平台资深 AI 客服。你刚同时处理�
 3. 某个环节失败就顺带提一句替代办法
 4. 发现关联问题主动提醒（如物流异常可以帮你退款）
 5. 全程纯文本、控制在几句话内，别罗列数据
+
+信息整合守则：
+- 交叉核对所有来源（实时查询、补全查询、页面快照）后再回答；同一事实以实时查询为准，快照为辅。
+- 某个信息在单一来源缺失时，先检查其他来源；都缺失才如实说"当前查询不到"，并给出替代方案。
+- 严禁把"单一来源没有"说成"系统没有/未同步"；严禁编造单号、金额、日期。
 """
 
 
@@ -198,12 +205,13 @@ async def coordinate(
                     logger.warning(f"[Coordinator] 域执行异常: {result}")
                     context_parts.append(f"[部分查询异常] {str(result)}")
                 elif result:
-                    domain_name, exec_result, ctx = result
-                    all_tool_calls.append(exec_result.to_trace_dict())
-                    if exec_result.success:
-                        context_parts.append(f"[{domain_name}查询结果]\n{exec_result.to_context_string()}")
-                    else:
-                        context_parts.append(f"[{domain_name}查询失败] {exec_result.error}")
+                    domain_name, exec_results, ctx = result
+                    for exec_result in exec_results:
+                        all_tool_calls.append(exec_result.to_trace_dict())
+                    if ctx:
+                        context_parts.append(ctx)
+                    elif not any(r.success for r in exec_results):
+                        context_parts.append(f"[{domain_name}查询失败] 无有效结果")
 
     # Phase 2: 串行执行有依赖域
     for domain in dependent:
@@ -284,6 +292,17 @@ async def coordinate(
                     "我确认后再正式创建工单。"
                 )
             continue
+        elif domain in ("order", "logistics") and order_id:
+            # 订单/物流域接入增强编排（完整性契约 enrich + 页面快照兜底，修 D2）；
+            # 退款/投诉闸门分支在上面保持不动（红线）。
+            page_facts = extract_context_facts(user_input)
+            exec_results, ctx = await enhanced_tool_execute(
+                tool_name, {"order_id": order_id}, enrich=True, page_facts=page_facts
+            )
+            for exec_result in exec_results:
+                all_tool_calls.append(exec_result.to_trace_dict())
+            context_parts.append(ctx or f"[{domain}处理失败] 无有效结果")
+            continue
         elif order_id:
             exec_result = await tool_executor.execute_by_name(
                 tool_name, order_id=order_id
@@ -299,7 +318,21 @@ async def coordinate(
 
     # Phase 3: LLM 综合所有结果
     combined_context = "\n\n".join(context_parts) if context_parts else "未能获取到有效信息"
-    user_message = f"用户原始请求：{visible_input}\n\n各Agent处理结果：\n{combined_context}"
+
+    # 修 D1：LLM 综合输入保留前端注入的结构化事实（页面实时快照），
+    # 与实时查询结果互为备份；意图判定仍只用 visible_input（红线，未改）。
+    snapshot_lines = format_snapshot_section(extract_context_facts(user_input))
+    snapshot_section = ""
+    if snapshot_lines:
+        snapshot_section = (
+            "\n\n[页面实时快照（前端注入，可信）]\n" + "\n".join(snapshot_lines)
+        )
+
+    user_message = (
+        f"用户原始请求：{visible_input}"
+        f"{snapshot_section}"
+        f"\n\n各Agent处理结果：\n{combined_context}"
+    )
 
     content = await call_llm(
         system_prompt=SYNTHESIZE_PROMPT,
@@ -333,13 +366,24 @@ async def _execute_domain_tool(
     tool_name: str,
     order_id: str,
     user_input: str,
-) -> tuple[str, Any, str]:
-    """执行单个域的工具"""
+) -> tuple[str, list, str]:
+    """执行单个域的工具。
+
+    订单/物流域走 enhanced_tool_execute（完整性契约 enrich + 失败提示 +
+    页面快照兜底，修 D2），其余域保持裸单工具执行。
+    """
+    if domain in ("order", "logistics"):
+        page_facts = extract_context_facts(user_input)
+        exec_results, ctx = await enhanced_tool_execute(
+            tool_name, {"order_id": order_id}, enrich=True, page_facts=page_facts
+        )
+        return (domain, exec_results, ctx)
+
     exec_result = await tool_executor.execute_by_name(tool_name, order_id=order_id)
-    return (domain, exec_result, "")
+    return (domain, [exec_result], exec_result.to_context_string())
 
 
-async def _execute_product_tool(user_input: str) -> tuple[str, Any, str] | None:
+async def _execute_product_tool(user_input: str) -> tuple[str, list, str] | None:
     """商品查询工具（不需要order_id）"""
     import re as _re
     keyword = None
@@ -355,7 +399,7 @@ async def _execute_product_tool(user_input: str) -> tuple[str, Any, str] | None:
     if not keyword:
         return None
     exec_result = await tool_executor.execute_by_name("query_inventory", product_name=keyword)
-    return ("product", exec_result, "")
+    return ("product", [exec_result], exec_result.to_context_string())
 
 
 def _extract_refund_reason(text: str) -> str:

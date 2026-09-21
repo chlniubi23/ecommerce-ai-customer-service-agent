@@ -6,10 +6,18 @@ Enhanced Flow Execution Engine
 - 为每个 Flow 提供 retry + fallback + multi-tool 能力
 - 自动根据工具结果决定是否需要补充查询
 
+多来源信息整合（本轮改造）：
+- TOOL_RESULT_CONTRACTS：主工具"回答完整性"契约，主工具成功但缺关键字段时
+  自动执行关联工具补全（不因单一来源缺失而答"系统没有"）；
+- enrich / 关联工具失败不再静默：向 LLM 上下文追加 [补全失败提示]，
+  告知失败并提示可参考页面快照/历史记录；
+- 页面快照兜底（A3）：实时查询缺失/失败而前端快照存在时，追加
+  [页面快照补充]（来源：用户当前页面）；
+- 所有上下文片段标注来源标签（[实时查询] / [补全查询]），供 LLM 交叉核对。
+
 设计理念：
 - 装饰器模式，不修改现有 Flow 代码
 - 失败自动重试（最多2次），换参数/换工具
-- 工具结果不够丰富时，自动补充关联查询
 - 所有增强对上层透明
 """
 
@@ -17,6 +25,7 @@ import logging
 import time
 from typing import Any
 
+from app.agents.context_facts import extract_context_facts, snapshot_lines_for_dimensions
 from app.flows.base import FlowResult
 from app.models.message import Message, MessageRole
 from app.services.llm import call_llm
@@ -33,6 +42,32 @@ TOOL_ENRICHMENT_MAP = {
     "complaint_create": ["query_order"],      # 投诉时自动补充订单信息
 }
 
+# 主工具"回答完整性"契约：每个维度列出可接受的字段别名（任一命中即满足该维度）。
+# 主工具成功但存在未满足维度 → 触发关联工具补全 + 页面快照兜底（修 D4）。
+TOOL_RESULT_CONTRACTS: dict[str, dict[str, list[str]]] = {
+    "query_order": {
+        # 回答订单状态类问题需要物流信息（logistics/shipment 相关键）
+        "logistics": ["logistics", "shipment", "carrier_name", "tracking_no", "current_status"],
+        "order_status": ["order_status", "shipping_status", "receipt_status"],
+    },
+    "logistics_query": {
+        # 回答物流问题需要订单状态（或由 enrich 的 query_order 补充）
+        "order_status": ["order_status", "shipping_status", "receipt_status"],
+    },
+    "refund_apply": {
+        "order_status": ["order_status", "shipping_status", "receipt_status"],
+        "logistics": ["logistics", "shipment", "carrier_name", "tracking_no", "current_status"],
+    },
+}
+
+# 契约维度中文名（用于失败提示文案）
+DIMENSION_LABELS = {
+    "logistics": "物流",
+    "order_status": "订单状态",
+    "refund": "退款",
+    "complaint": "投诉",
+}
+
 # 工具失败时的降级策略
 TOOL_FALLBACK_MAP = {
     "logistics_query": "query_order",  # 物流查不到，降级查订单
@@ -42,55 +77,121 @@ TOOL_FALLBACK_MAP = {
 MAX_RETRY = 2
 
 
+def contract_missing_dimensions(tool_name: str, data: dict[str, Any] | None) -> list[str]:
+    """检查主工具结果是否满足完整性契约，返回未满足的维度列表。"""
+    contracts = TOOL_RESULT_CONTRACTS.get(tool_name)
+    if not contracts or not isinstance(data, dict):
+        return []
+    keys = set(data.keys())
+    # 兼容嵌套结构：logistics/shipment 子 dict 的键也算顶层可用
+    for nested_key in ("logistics", "shipment"):
+        nested = data.get(nested_key)
+        if isinstance(nested, dict):
+            keys.update(nested.keys())
+    missing = []
+    for dimension, aliases in contracts.items():
+        if not any(alias in keys for alias in aliases):
+            missing.append(dimension)
+    return missing
+
+
 async def enhanced_tool_execute(
     tool_name: str,
     params: dict[str, Any],
     enrich: bool = True,
+    page_facts: dict[str, str] | None = None,
 ) -> tuple[list[ToolExecutionResult], str]:
     """
-    增强工具执行：重试 + 降级 + 自动补充关联数据
+    增强工具执行：重试 + 降级 + 完整性契约补全 + 页面快照兜底
+
+    Args:
+        tool_name: 主工具名
+        params: 主工具参数
+        enrich: 是否启用关联补全
+        page_facts: 前端页面快照事实（extract_context_facts 的返回值，兜底来源）
 
     Returns:
-        (所有工具结果列表, 合并后的上下文字符串)
+        (所有工具结果列表, 合并后的上下文字符串，含来源标签)
     """
     results: list[ToolExecutionResult] = []
     context_parts: list[str] = []
+    facts = page_facts or {}
 
     # 主工具执行（带重试）
     main_result = await _execute_with_retry(tool_name, params)
     results.append(main_result)
 
     if main_result.success:
-        context_parts.append(main_result.to_context_string())
+        context_parts.append(f"[实时查询]\n{main_result.to_context_string()}")
 
-        # 自动补充关联数据
-        if enrich and tool_name in TOOL_ENRICHMENT_MAP:
-            order_id = params.get("order_id", "")
-            if order_id:
-                for enrich_tool_name in TOOL_ENRICHMENT_MAP[tool_name]:
-                    enrich_result = await tool_executor.execute_by_name(
-                        enrich_tool_name, order_id=order_id
+        # ===== 完整性契约 + 关联补全（修 D3/D4）=====
+        # enrich 触发条件：order_id 非空（含从主工具结果中提取）或 主工具结果不满足契约
+        main_data = main_result.tool_result.data if main_result.tool_result else {}
+        enrich_order_id = str(params.get("order_id") or (main_data or {}).get("order_id") or "")
+        missing_dimensions = contract_missing_dimensions(tool_name, main_data)
+        should_enrich = enrich and tool_name in TOOL_ENRICHMENT_MAP and (
+            enrich_order_id or missing_dimensions
+        )
+
+        if should_enrich:
+            for enrich_tool_name in TOOL_ENRICHMENT_MAP[tool_name]:
+                enrich_params: dict[str, Any] = (
+                    {"order_id": enrich_order_id} if enrich_order_id else {}
+                )
+                enrich_result = await tool_executor.execute_by_name(
+                    enrich_tool_name, **enrich_params
+                )
+                if enrich_result.success:
+                    results.append(enrich_result)
+                    context_parts.append(f"[补全查询]\n{enrich_result.to_context_string()}")
+                    logger.info("[EnhancedFlow] 自动补充 %s 成功", enrich_tool_name)
+                    # 用补全结果重新评估契约
+                    merged_keys = dict(main_data or {})
+                    merged_keys.update(enrich_result.tool_result.data or {})
+                    missing_dimensions = contract_missing_dimensions(tool_name, merged_keys)
+                else:
+                    # 修 D3：失败不再静默，明确告知 LLM 失败与替代来源
+                    context_parts.append(
+                        f"[补全失败提示] {enrich_tool_name} 查询失败({enrich_result.error})；"
+                        "若页面上下文/历史记录中有相关信息请据此回答，并如实告知用户当前查询不到"
                     )
-                    if enrich_result.success:
-                        results.append(enrich_result)
-                        context_parts.append(enrich_result.to_context_string())
-                        logger.info(f"[EnhancedFlow] 自动补充 {enrich_tool_name} 成功")
+                    logger.warning(
+                        "[EnhancedFlow] 自动补充 %s 失败: %s", enrich_tool_name, enrich_result.error
+                    )
+
+        # ===== 页面快照兜底（A3）：契约仍有缺口 / 补全失败时用前端事实 =====
+        if missing_dimensions:
+            snapshot_lines = snapshot_lines_for_dimensions(facts, missing_dimensions)
+            if snapshot_lines:
+                context_parts.extend(snapshot_lines)
+                logger.info(
+                    "[EnhancedFlow] 页面快照兜底生效: dimensions=%s", missing_dimensions
+                )
     else:
         # 主工具失败 → 尝试降级工具
         fallback_name = TOOL_FALLBACK_MAP.get(tool_name)
         if fallback_name and "order_id" in params:
-            logger.info(f"[EnhancedFlow] {tool_name} 失败，降级到 {fallback_name}")
+            logger.info("[EnhancedFlow] %s 失败，降级到 %s", tool_name, fallback_name)
             fallback_result = await tool_executor.execute_by_name(
                 fallback_name, order_id=params["order_id"]
             )
             results.append(fallback_result)
             if fallback_result.success:
-                context_parts.append(fallback_result.to_context_string())
-                context_parts.append(f"[注意] {tool_name} 查询失败({main_result.error})，已用 {fallback_name} 补充信息")
+                context_parts.append(f"[补全查询]\n{fallback_result.to_context_string()}")
+                context_parts.append(
+                    f"[注意] {tool_name} 查询失败({main_result.error})，已用 {fallback_name} 补充信息"
+                )
             else:
                 context_parts.append(f"[工具调用失败] {tool_name}: {main_result.error}")
         else:
             context_parts.append(f"[工具调用失败] {tool_name}: {main_result.error}")
+
+        # 主工具失败时同样尝试页面快照兜底（覆盖"物流单号未同步但详情页可见"场景）
+        snapshot_lines = snapshot_lines_for_dimensions(
+            facts, list(TOOL_RESULT_CONTRACTS.get(tool_name, {}).keys())
+        )
+        if snapshot_lines:
+            context_parts.extend(snapshot_lines)
 
     return results, "\n\n".join(context_parts)
 
@@ -100,6 +201,7 @@ async def _execute_with_retry(
     params: dict[str, Any],
 ) -> ToolExecutionResult:
     """带重试的工具执行"""
+    result = ToolExecutionResult(tool_name=tool_name, tool_args=params, success=False, error="未执行")
     for attempt in range(MAX_RETRY):
         result = await tool_executor.execute_by_name(tool_name, **params)
         if result.success:
@@ -111,6 +213,11 @@ async def _execute_with_retry(
     return result
 
 
+INFORMATION_INTEGRATION_RULES = """信息整合守则：
+- 交叉核对所有来源（实时查询、补全查询、页面快照）后再回答；同一事实以实时查询为准，快照为辅。
+- 某个信息在单一来源缺失时，先检查其他来源；都缺失才如实说"当前查询不到"，并给出替代方案。
+- 严禁把"单一来源没有"说成"系统没有/未同步"；严禁编造单号、金额、日期。"""
+
 ANALYSIS_PROMPT = """你是一位资深电商客服 AI。基于以下工具查询结果，给用户一个简短、口语、像真人客服的回答。
 
 要求：
@@ -120,7 +227,9 @@ ANALYSIS_PROMPT = """你是一位资深电商客服 AI。基于以下工具查�
 4. 工具查询失败就如实说，给个替代办法
 5. 全程纯文本、不超过几句话，别罗列原始数据
 
-{domain_prompt}"""
+{domain_prompt}
+
+""" + INFORMATION_INTEGRATION_RULES
 
 
 async def enhanced_flow_handle(
@@ -136,14 +245,18 @@ async def enhanced_flow_handle(
 
     替代原有 Flow 的简单 tool→LLM 模式，提供：
     - 工具调用带重试和降级
-    - 自动补充关联数据
+    - 自动补充关联数据（完整性契约驱动）
+    - 页面快照兜底（前端注入事实，user_input 含 [系统补充上下文] 时自动解析）
     - LLM 综合分析多工具结果
     """
     start = time.perf_counter()
 
+    # 页面快照事实（A3）：从完整消息解析前端注入的结构化事实行
+    page_facts = extract_context_facts(user_input)
+
     # 增强工具执行
     results, context_string = await enhanced_tool_execute(
-        tool_name, tool_params, enrich=enrich
+        tool_name, tool_params, enrich=enrich, page_facts=page_facts
     )
 
     # 构建增强 prompt
