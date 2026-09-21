@@ -7,8 +7,8 @@
     python rebuild_rag_index.py --force    # 全量：清空 collection 后从 knowledge_base/knowledge/ 全量入库
 
 收集范围：knowledge_base/knowledge/ 下所有 .txt / .md 文件
-切片配置：Settings.chunk_size / chunk_overlap（默认 500/100，与 API upload / Pipeline 一致）
-结束时输出：chunk 总数、向量维度、耗时
+切片配置：父子块切分（父块 800/150 返回用，子块 250/50 检索用，与 Pipeline 一致）
+结束时输出：父/子块数量、向量维度、耗时
 """
 
 import argparse
@@ -30,8 +30,7 @@ KB_DIR = os.path.join(BASE_DIR, "knowledge_base", "knowledge")
 sys.path.insert(0, BASE_DIR)
 
 from app.rag.loaders import load_document
-from app.rag.constants.config import CHUNK_SIZE, CHUNK_OVERLAP
-from app.rag.chunkers import RecursiveChunker
+from app.rag.chunkers import ParentChildChunker
 from app.rag.schemas.document import UploadedFile
 from app.rag.vectorstore import chroma_store
 
@@ -72,8 +71,10 @@ def run(force: bool) -> None:
         removed = chroma_store.clear()
         logger.info("已清空 collection（删除 %d 个旧 chunks）", removed)
 
-    chunker = RecursiveChunker(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+    chunker = ParentChildChunker()
     total_chunks = 0
+    total_parents = 0
+    total_children = 0
     indexed_files = 0
     skipped_files = 0
     errors: list[tuple[str, str]] = []
@@ -109,21 +110,22 @@ def run(force: bool) -> None:
                 file_size=stat.st_size,
             )
 
-            # Loader → Chunker（与 KnowledgePipeline 相同组件、统一切片配置），
+            # Loader → 父子块切分（与 KnowledgePipeline 相同组件与配置），
             # 此处单独编排以注入 source/source_hash 元数据供增量判断
             documents = load_document(uploaded)
-            chunks = chunker.chunk_documents(documents)
-            for chunk in chunks:
+            parents, children = chunker.chunk_documents(documents)
+            for chunk in parents + children:
                 chunk.metadata.update({
                     "source_path": rel,
                     "source_hash": source_hash,
                 })
-                chunk.chunk_id = f"{file_id}_c{chunk.metadata.get('chunk_index', 0):04d}"
 
-            stored = chroma_store.add_chunks(chunks)
+            stored = chroma_store.add_chunks(parents + children)
             total_chunks += stored
+            total_parents += len(parents)
+            total_children += len(children)
             indexed_files += 1
-            logger.info("[%3d/%3d] %s → %d chunks", idx, len(files), rel, stored)
+            logger.info("[%3d/%3d] %s → %d 父块 / %d 子块", idx, len(files), rel, len(parents), len(children))
 
         except Exception as e:
             errors.append((rel, str(e)))
@@ -132,9 +134,9 @@ def run(force: bool) -> None:
     duration = time.perf_counter() - started
     dimension = chroma_store.dimension
     logger.info(
-        "\n完成！耗时 %.1fs | 入库文件 %d (跳过 %d) | 本次新增 chunks %d | "
+        "\n完成！耗时 %.1fs | 入库文件 %d (跳过 %d) | 本次新增 父块 %d / 子块 %d | "
         "向量库总量 %d | 向量维度 %s | Embedding provider 见启动日志",
-        duration, indexed_files, skipped_files, total_chunks,
+        duration, indexed_files, skipped_files, total_parents, total_children,
         chroma_store.count(), dimension,
     )
     if errors:

@@ -49,6 +49,18 @@ class KnowledgeContextBuilder:
             document_id = metadata.get("file_id") or metadata.get("document_id") or source
             category = metadata.get("knowledge_category") or metadata.get("category") or "other"
             score = float(chunk.get("relevance_score", chunk.get("similarity", 0.0)) or 0.0)
+            hit_index = metadata.get("chunk_index", index)
+
+            # 来源标注（任务 B4）：区分"命中片段"与"父块完整上下文"，
+            # 内容优先使用父块完整内容（分数与引用仍对应命中的子块）
+            parent_content = str(chunk.get("parent_content", "") or "").strip()
+            if parent_content and metadata.get("parent_id"):
+                source_tag = f"[来源: {category}/{source} | 命中: 子块#{hit_index} | 父块完整内容]"
+                content = parent_content
+            else:
+                source_tag = f"[来源: {category}/{source} | 命中: 片段#{hit_index}]"
+                content = str(chunk.get("content", ""))
+
             parts.append(
                 "\n".join(
                     [
@@ -58,8 +70,9 @@ class KnowledgeContextBuilder:
                         f"Chunk ID: {chunk.get('chunk_id', '')}",
                         f"Category: {category}",
                         f"Similarity: {score:.4f}",
+                        source_tag,
                         "Content:",
-                        str(chunk.get("content", "")),
+                        content,
                     ]
                 )
             )

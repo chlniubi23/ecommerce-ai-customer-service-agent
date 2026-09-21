@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from app.core.config import get_settings
@@ -78,17 +79,23 @@ class KnowledgeSearchTool(BaseTool):
 
         # 检索 Query：真实语义 Embedding 下，向量检索只用"上下文消解后的自然语言 query"，
         # 词表拼接（_expand_query_terms / 查询理解的分类扩展）会稀释查询向量，
-        # 因此仅用于 _rank_chunks_for_query 的规则重排加分与 Trace 展示。
+        # 因此仅用于规则重排加分、关键词路与二次补检。
         retrieval_query = context_resolved_query
         expanded_query = understanding.expanded_query or _expand_query_terms(context_resolved_query, category)
         lexical_boost_terms = _lexical_boost_terms(expanded_query)
+        keyword_route_terms = _keyword_route_terms(context_resolved_query, category, understanding)
         retrieval_window = max(top_k * 8, 30)
 
-        retrieval = retrieval_service.query_knowledge(
-            question=retrieval_query,
-            top_k=retrieval_window,
-            min_score=min_score,
-        )
+        def _fused(question: str, window: int, threshold: float):
+            """多路融合检索：路1=语义(原问题)，路2=关键词(核心词表)，RRF 合并。"""
+            return retrieval_service.query_knowledge_fused(
+                question=question,
+                keyword_terms=keyword_route_terms,
+                top_k=window,
+                min_score=threshold,
+            )
+
+        retrieval = _fused(retrieval_query, retrieval_window, min_score)
         chunks = retrieval.chunks
 
         if allowed_categories:
@@ -96,12 +103,41 @@ class KnowledgeSearchTool(BaseTool):
             if category_chunks:
                 chunks = category_chunks
             else:
-                fallback = retrieval_service.query_knowledge(
-                    question=retrieval_query,
-                    top_k=retrieval_window,
-                    min_score=max(0.0, min_score * 0.5),
-                )
+                fallback = _fused(retrieval_query, retrieval_window, max(0.0, min_score * 0.5))
                 chunks = [chunk for chunk in fallback.chunks if _chunk_matches_any_category(chunk, allowed_categories)]
+
+        # ===== 结果校验与二次补检（任务 B3，修 D6 后半；最多一次防延迟恶化）=====
+        revalidation = {
+            "triggered": False,
+            "reason": "",
+            "retry_query": "",
+            "retry_result_count": 0,
+            "entity_guard_applied": False,
+        }
+        coverage_entities = _coverage_entities(context_resolved_query, category, understanding)
+        if not _has_vector_hit(chunks):
+            # 相关性校验：语义路未命中（top 向量分低于阈值/无结果）→ 用 expanded_query 重检一次
+            revalidation.update(triggered=True, reason="relevance", retry_query=expanded_query)
+            retry = _fused(expanded_query, retrieval_window, min_score)
+            retry_chunks = retry.chunks
+            if not chunks and coverage_entities:
+                before = len(retry_chunks)
+                retry_chunks = _entity_guard(retry_chunks, coverage_entities)
+                revalidation["entity_guard_applied"] = True
+                revalidation["entity_guard_dropped"] = before - len(retry_chunks)
+            chunks = _merge_best(chunks, retry_chunks)
+        elif not _coverage_ok(chunks, coverage_entities):
+            # 覆盖度校验：top-5 无任何关键实体 → 用"实体+类别词"窄查询重检一次
+            narrow_terms = list(dict.fromkeys([*coverage_entities, *_active_terms(context_resolved_query.lower(), category)]))
+            narrow_query = " ".join(narrow_terms[:6]) or expanded_query
+            revalidation.update(triggered=True, reason="coverage", retry_query=narrow_query)
+            retry = _fused(narrow_query, retrieval_window, min_score)
+            before = len(retry.chunks)
+            retry_chunks = _entity_guard(retry.chunks, coverage_entities)
+            revalidation["entity_guard_applied"] = bool(coverage_entities)
+            revalidation["entity_guard_dropped"] = before - len(retry_chunks)
+            chunks = _merge_best(chunks, retry_chunks)
+        revalidation["retry_result_count"] = len(chunks)
 
         chunks = _expand_same_source_chunks(query, chunks)
         chunks = _rank_chunks_for_query(
@@ -109,6 +145,7 @@ class KnowledgeSearchTool(BaseTool):
             product_target=understanding.product_target,
             lexical_boost_terms=lexical_boost_terms,
         )[:top_k]
+        chunks = _attach_parent_content(chunks)
 
         search_result = knowledge_context_builder.build(
             query=query,
@@ -140,6 +177,8 @@ class KnowledgeSearchTool(BaseTool):
                 "inferred_category": category,
                 "expanded_query": expanded_query,
                 "lexical_boost_terms": lexical_boost_terms,
+                "keyword_route_terms": keyword_route_terms,
+                "revalidation": revalidation,
                 "query_understanding": understanding.to_dict(),
             },
         }
@@ -199,6 +238,140 @@ def _lexical_boost_terms(expanded_query: str) -> list[str]:
             seen.add(token)
             terms.append(token)
     return terms
+
+
+def _keyword_route_terms(query: str, category: str, understanding: Any) -> list[str]:
+    """构建关键词检索路（B2 路 2）的核心词表。
+
+    构成：查询中的英文/数字词（商品型号）+ 查询理解正式术语 + 商品型号 + 类别关键词。
+    正式术语（如"七天无理由退货"）天然适合字面包含匹配，弥补语义路对
+    短查询/实体词查询的召回缺口。
+    """
+    lowered = query.lower()
+    terms: list[str] = []
+    # 1. 英文/数字词（如 macbook / air / m4 / iphone16）
+    for token in re.findall(r"[a-z0-9][a-z0-9\-+]{1,}", lowered):
+        terms.append(token)
+    # 2. 查询理解的正式术语 + 商品型号
+    terms.extend(str(t).strip().lower() for t in (understanding.canonical_terms or []) if str(t).strip())
+    if understanding.product_target:
+        terms.append(str(understanding.product_target).strip().lower())
+    # 3. 类别关键词（域词汇，命中知识块概率高）
+    terms.extend(_active_terms(lowered, category))
+    return _dedupe_terms(terms)
+
+
+_FUNCTION_WORD_SPLIT = re.compile(r"[的了吗呢吧啊什么怎么如何为什么是不是，。？！,?!、\s]+")
+
+
+def _coverage_entities(query: str, category: str, understanding: Any) -> list[str]:
+    """提取问题中的关键实体（B3 覆盖度校验用）：商品型号/正式术语/内容词。"""
+    lowered = query.lower()
+    entities: list[str] = []
+    if understanding.product_target:
+        entities.append(str(understanding.product_target).strip().lower())
+    entities.extend(str(t).strip().lower() for t in (understanding.canonical_terms or []) if len(str(t).strip()) >= 3)
+    for token in re.findall(r"[a-z0-9][a-z0-9\-+]{1,}", lowered):
+        entities.append(token)
+    for token in _query_tokens(lowered):
+        if len(token) >= 3:
+            entities.append(token)
+    for segment in _FUNCTION_WORD_SPLIT.split(query):
+        segment = segment.strip().lower()
+        if len(segment) >= 3:
+            entities.append(segment)
+    for term in _active_terms(lowered, category):
+        if term in lowered:
+            entities.append(term)
+    return _dedupe_terms(entities)
+
+
+def _has_vector_hit(chunks: list[dict[str, Any]]) -> bool:
+    """语义向量路是否有高于阈值的命中（融合后校验 B3.1）。"""
+    return any(
+        "vector" in (chunk.get("retrieval_routes") or [])
+        for chunk in chunks
+    )
+
+
+def _coverage_ok(chunks: list[dict[str, Any]], entities: list[str]) -> bool:
+    """覆盖度校验（B3.2）：top-5 中是否存在包含任一关键实体的块。"""
+    if not entities or not chunks:
+        return True
+    for chunk in chunks[:5]:
+        content = str(chunk.get("content", "")).lower()
+        parent_content = str(chunk.get("parent_content", "") or "").lower()
+        metadata = chunk.get("metadata", {}) or {}
+        file_name = str(metadata.get("file_name", "")).lower()
+        if any(entity in content or entity in parent_content or entity in file_name for entity in entities):
+            return True
+    return False
+
+
+def _entity_guard(chunks: list[dict[str, Any]], entities: list[str]) -> list[dict[str, Any]]:
+    """补检结果的实体过滤：只保留包含至少一个关键实体的块，防止扩展词重检引入无关结果。"""
+    if not entities:
+        return chunks
+    kept = []
+    for chunk in chunks:
+        content = str(chunk.get("content", "")).lower()
+        metadata = chunk.get("metadata", {}) or {}
+        file_name = str(metadata.get("file_name", "")).lower()
+        if any(entity in content or entity in file_name for entity in entities):
+            kept.append(chunk)
+    return kept
+
+
+def _merge_best(
+    base: list[dict[str, Any]], extra: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """合并两次检索结果：按 chunk_id 去重，重复块保留分数更高/路由更全的一条。"""
+    if not extra:
+        return list(base)
+    by_id: dict[str, dict[str, Any]] = {}
+    for chunk in [*base, *extra]:
+        chunk_id = chunk.get("chunk_id")
+        existing = by_id.get(chunk_id)
+        if existing is None:
+            by_id[chunk_id] = dict(chunk)
+            continue
+        merged_routes = list(dict.fromkeys([
+            *(existing.get("retrieval_routes") or []),
+            *(chunk.get("retrieval_routes") or []),
+        ]))
+        if float(chunk.get("relevance_score", 0.0) or 0.0) >= float(existing.get("relevance_score", 0.0) or 0.0):
+            merged = dict(chunk)
+        else:
+            merged = dict(existing)
+        merged["retrieval_routes"] = merged_routes
+        merged["rrf_score"] = max(
+            float(existing.get("rrf_score", 0.0) or 0.0),
+            float(chunk.get("rrf_score", 0.0) or 0.0),
+        )
+        by_id[chunk_id] = merged
+    return list(by_id.values())
+
+
+def _attach_parent_content(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """父子块组装（B1）：按 parent_id 回取父块完整内容，写入 parent_content 字段。
+
+    返回给 LLM 的最终上下文用父块，分数与引用仍用命中子块。
+    """
+    if not chunks:
+        return chunks
+    parent_ids: list[str] = []
+    for chunk in chunks:
+        parent_id = str((chunk.get("metadata") or {}).get("parent_id") or "")
+        if parent_id and parent_id not in parent_ids:
+            parent_ids.append(parent_id)
+    if not parent_ids:
+        return chunks
+    parents = {item["chunk_id"]: item for item in chroma_store.get_by_ids(parent_ids)}
+    for chunk in chunks:
+        parent_id = str((chunk.get("metadata") or {}).get("parent_id") or "")
+        if parent_id and parent_id in parents:
+            chunk["parent_content"] = parents[parent_id].get("content", "")
+    return chunks
 
 
 def _dedupe_terms(terms: list[str]) -> list[str]:
@@ -391,9 +564,12 @@ def _expand_same_source_chunks(query: str, chunks: list[dict[str, Any]]) -> list
 
     by_id = {chunk.get("chunk_id"): dict(chunk) for chunk in chunks}
     for name in matched_sources:
-        # 同源扩展：通过 VectorStore 公开方法取同文件全部 chunks（不再访问私有 _data）
+        # 同源扩展：通过 VectorStore 公开方法取同文件全部 chunks（不再访问私有 _data）；
+        # 父块跳过——父块完整内容由 _attach_parent_content 按 parent_id 提供，避免重复
         for item in chroma_store.get_by_file_name(name):
             metadata = item.get("metadata", {}) or {}
+            if metadata.get("chunk_type") == "parent":
+                continue
             chunk_id = item.get("chunk_id")
             if chunk_id in by_id:
                 continue

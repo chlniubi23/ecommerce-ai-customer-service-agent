@@ -58,14 +58,22 @@ def _point_id(chunk_id: str) -> str:
 
 
 def _to_filter(where: dict | None) -> models.Filter | None:
-    """沿用旧语义：{key: value} 精确匹配 → qdrant payload 过滤条件"""
-    if not where:
-        return None
-    return models.Filter(
-        must=[
+    """沿用旧语义：{key: value} 精确匹配 → qdrant payload 过滤条件。
+
+    检索面始终排除父块（chunk_type=parent，仅存档/返回用，不参与检索命中）；
+    无 chunk_type 字段的历史数据不受影响。
+    """
+    must = None
+    if where:
+        must = [
             models.FieldCondition(key=key, match=models.MatchValue(value=value))
             for key, value in where.items()
         ]
+    return models.Filter(
+        must=must,
+        must_not=[
+            models.FieldCondition(key="chunk_type", match=models.MatchValue(value="parent"))
+        ],
     )
 
 
@@ -277,6 +285,121 @@ class VectorStore:
             )
         logger.warning("[VECTORSTORE] collection 已清空 (原 %d 条)", before)
         return before
+
+    def get_by_ids(self, chunk_ids: list[str]) -> list[dict]:
+        """
+        按 chunk_id 批量取回记录（无需向量计算）
+
+        供父子块组装（子块命中后回取父块完整内容）与同源扩展复用。
+
+        Returns:
+            list[dict]: [{chunk_id, content, metadata}]
+        """
+        wanted = [cid for cid in (chunk_ids or []) if cid]
+        if not wanted:
+            return []
+        point_ids = [_point_id(cid) for cid in wanted]
+        points = self._client.retrieve(
+            collection_name=self.collection_name,
+            ids=point_ids,
+            with_payload=True,
+        )
+        items: list[dict] = []
+        for point in points:
+            payload = point.payload or {}
+            items.append({
+                "chunk_id": payload.get("chunk_id", str(point.id)),
+                "content": payload.get("content", ""),
+                "metadata": {
+                    key: value for key, value in payload.items()
+                    if key not in ("chunk_id", "content")
+                },
+            })
+        return items
+
+    def keyword_search(
+        self,
+        terms: list[str],
+        top_k: int = 5,
+        where: dict | None = None,
+    ) -> list[dict]:
+        """
+        轻量关键词检索（多路检索的路 2，修 D6 前半）
+
+        对给定的核心词表在 payload(content/file_name) 上做包含匹配，
+        数据量 10^2 量级，直接滚动全量点计算，不引入 BM25 依赖。
+
+        命中规则（保证精度，避免口语/扩展词误命中）：
+        - 至少匹配 2 个词 且 匹配比例 ≥ 0.5；或
+        - 仅匹配 1 个词但该词长度 ≥ 4（如商品型号/长实体词）。
+
+        Returns:
+            list[dict]: [{chunk_id, content, metadata, distance, relevance_score, keyword_matched}]
+            relevance_score = 匹配比例（仅用于路内排序与 debug，不与向量分混用）
+        """
+        lowered_terms: list[str] = []
+        seen: set[str] = set()
+        for term in terms or []:
+            key = str(term).strip().lower()
+            if len(key) >= 2 and key not in seen:
+                seen.add(key)
+                lowered_terms.append(key)
+        if not lowered_terms:
+            return []
+
+        matched_items: list[tuple[float, list[str], dict]] = []
+        offset = None
+        while True:
+            points, offset = self._client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=_to_filter(where),
+                limit=256,
+                offset=offset,
+                with_payload=True,
+            )
+            for point in points:
+                payload = point.payload or {}
+                content = str(payload.get("content", "")).lower()
+                file_name = str(payload.get("file_name", "")).lower()
+                matched = [
+                    term for term in lowered_terms
+                    if term in content or term in file_name
+                ]
+                ratio = len(matched) / len(lowered_terms)
+                passed = (
+                    len(matched) >= 2 and ratio >= 0.5
+                ) or (
+                    len(matched) == 1 and len(matched[0]) >= 4
+                )
+                if not passed:
+                    continue
+                matched_items.append((ratio, matched, {
+                    "chunk_id": payload.get("chunk_id", str(point.id)),
+                    "content": payload.get("content", ""),
+                    "metadata": {
+                        key: value for key, value in payload.items()
+                        if key not in ("chunk_id", "content")
+                    },
+                }))
+            if offset is None:
+                break
+
+        matched_items.sort(key=lambda entry: entry[0], reverse=True)
+        results: list[dict] = []
+        for ratio, matched, base in matched_items[: max(1, int(top_k))]:
+            score = round(min(1.0, ratio), 4)
+            results.append({
+                **base,
+                "distance": round(max(0.0, 1.0 - score), 4),
+                "relevance_score": score,
+                "keyword_matched": matched,
+            })
+        if results:
+            logger.info(
+                "[VECTORSTORE] 关键词检索: %d 个词, 命中 %d 条 (top1 ratio=%.2f)",
+                len(lowered_terms), len(results), results[0]["relevance_score"],
+            )
+        return results
 
 
 # 全局单例

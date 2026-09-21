@@ -156,6 +156,121 @@ class RetrievalService:
             debug_info=debug_info,
         )
 
+    def query_knowledge_fused(
+        self,
+        question: str,
+        keyword_terms: list[str] | None = None,
+        top_k: int | None = None,
+        min_score: float | None = None,
+    ) -> RetrievalResult:
+        """
+        多路检索与融合（修 D6 前半，任务 B2）
+
+        - 路 1（语义）：向量检索原问题（消解后的自然语言 query）；
+        - 路 2（关键词）：对核心词表（原问题词 + 查询理解正式术语 + 商品型号）
+          在 payload 上做包含匹配——expanded_query 的正式术语天然适合字面匹配；
+        - 融合：RRF（Reciprocal Rank Fusion, k=60）合并排序，替代单一分数序；
+          按 chunk_id 去重取最高 rank（多查询合并）。
+
+        关键词命中不套用向量分阈值（字面匹配精度高）；向量命中沿用 min_score 过滤。
+
+        Returns:
+            RetrievalResult: chunks 每项含 retrieval_routes / rrf_score（新增字段，向后兼容）
+        """
+        k = top_k or self.top_k
+        threshold = min_score or self.min_score
+
+        total_count = chroma_store.count()
+        if total_count == 0:
+            return RetrievalResult(
+                query=question,
+                has_relevant=False,
+                debug_info={"total_in_store": 0, "message": "向量库为空"},
+            )
+
+        # 路 1：语义向量检索（原问题）
+        vector_result = self.query_knowledge(question, top_k=k, min_score=threshold)
+        vector_hits = vector_result.chunks
+
+        # 路 2：关键词检索（核心词表：原问题词 + 查询理解正式术语 + 商品型号）
+        keyword_hits: list[dict] = []
+        if keyword_terms:
+            keyword_hits = chroma_store.keyword_search(terms=keyword_terms, top_k=k)
+
+        # RRF 融合（k=60），按 chunk_id 去重取最高 rank
+        fused = _rrf_fuse([("vector", vector_hits), ("keyword", keyword_hits)], k=60)
+
+        debug_info = {
+            **vector_result.debug_info,
+            "total_in_store": total_count,
+            "fusion": "rrf(k=60)",
+            "routes": {
+                "vector": {
+                    "count": len(vector_hits),
+                    "top_score": vector_hits[0]["relevance_score"] if vector_hits else 0.0,
+                },
+                "keyword": {
+                    "count": len(keyword_hits),
+                    "terms": list(keyword_terms or []),
+                    "top_score": keyword_hits[0]["relevance_score"] if keyword_hits else 0.0,
+                },
+            },
+        }
+
+        if fused:
+            logger.info(
+                "[RETRIEVAL] 融合检索: 语义路 %d 条 + 关键词路 %d 条 → 融合 %d 条, "
+                "top1 routes=%s score=%.4f",
+                len(vector_hits), len(keyword_hits), len(fused),
+                fused[0].get("retrieval_routes"), fused[0].get("relevance_score", 0.0),
+            )
+        else:
+            logger.info("[RETRIEVAL] 融合检索无结果 (两路均未命中)")
+
+        return RetrievalResult(
+            query=question,
+            chunks=fused,
+            has_relevant=len(fused) > 0,
+            debug_info=debug_info,
+        )
+
+
+def _rrf_fuse(route_lists: list[tuple[str, list[dict]]], k: int = 60) -> list[dict]:
+    """RRF 融合多路检索结果，按 chunk_id 去重取最高 rank。
+
+    同 chunk 同时命中多路时：relevance_score 以向量分为准（引用/阈值语义不变），
+    仅关键词命中时用关键词匹配比例作为分数，并标注来源路由。
+    """
+    entries: dict[str, dict] = {}
+    for route_name, items in route_lists:
+        for rank, item in enumerate(items, start=1):
+            chunk_id = item.get("chunk_id")
+            if not chunk_id:
+                continue
+            entry = entries.setdefault(chunk_id, {
+                "chunk_id": chunk_id,
+                "content": item.get("content", ""),
+                "metadata": item.get("metadata", {}),
+                "distance": item.get("distance", 1.0),
+                "relevance_score": item.get("relevance_score", 0.0),
+                "retrieval_routes": [],
+                "rrf_score": 0.0,
+            })
+            entry["rrf_score"] += 1.0 / (k + rank)
+            if route_name not in entry["retrieval_routes"]:
+                entry["retrieval_routes"].append(route_name)
+            if route_name == "vector":
+                # 向量分优先（阈值/引用语义与基线一致）
+                entry["relevance_score"] = item.get("relevance_score", entry["relevance_score"])
+                entry["distance"] = item.get("distance", entry["distance"])
+            elif entry["retrieval_routes"] == ["keyword"]:
+                entry["distance"] = item.get("distance", entry["distance"])
+
+    fused = sorted(entries.values(), key=lambda e: e["rrf_score"], reverse=True)
+    for entry in fused:
+        entry["rrf_score"] = round(entry["rrf_score"], 6)
+    return fused
+
 
 # 全局单例
 retrieval_service = RetrievalService()
