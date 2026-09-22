@@ -3,28 +3,48 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import AgentEntry from "@/components/platform/AgentEntry";
+import {
+  ArrowRight,
+  BookOpenText,
+  Headset,
+  Megaphone,
+  PackageSearch,
+  ReceiptText,
+  Sparkles,
+  Truck,
+} from "lucide-react";
 import SiteShell from "@/components/platform/SiteShell";
 import { commerceApi, getStoredUserId, Product } from "@/services/commerce";
 import { formatCurrency, productImage } from "@/services/format";
+import { fetchMetrics, type MetricsData } from "@/services/metrics";
 
-const channels = [
-  { label: "百亿补贴", href: "/products", icon: "补" },
-  { label: "低价秒杀", href: "/products", icon: "秒" },
-  { label: "超值购", href: "/products", icon: "值" },
-  { label: "品牌馆", href: "/products", icon: "牌" },
-  { label: "订单", href: "/orders", icon: "单" },
-  { label: "售后", href: "/after-sales", icon: "退" },
-  { label: "投诉", href: "/complaints", icon: "诉" },
-  { label: "AI导购", href: "", icon: "AI", agent: true },
-];
+const OPEN_EVENT = "commerce:open-agent";
 
-const fallbackCards = [
-  "星耀 X1 Pro 5G 手机 · 直播间秒杀价",
-  "云感降噪 Pro 耳机 · 通勤降噪之选",
-  "轻居智能扫地机器人 · 扫拖一体",
-  "悦己修护水乳礼盒 · 保湿修护",
-];
+/** 数字滚动动画（requestAnimationFrame 纯 JS，尊重 prefers-reduced-motion） */
+function useCountUp(target: number | null, duration = 1100) {
+  const [display, setDisplay] = useState(0);
+  useEffect(() => {
+    if (target == null) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setDisplay(target);
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - start) / duration);
+      setDisplay(Math.round(target * (1 - Math.pow(1 - progress, 3))));
+      if (progress < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+  return display;
+}
+
+function openAgent(userId?: string) {
+  window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { user_id: userId } }));
+}
 
 export default function Home() {
   const [stats, setStats] = useState<{
@@ -33,176 +53,283 @@ export default function Home() {
     refunds: { count: number };
     complaints: { count: number };
   } | null>(null);
+  const [metrics, setMetrics] = useState<MetricsData | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [userId, setUserId] = useState("");
 
   useEffect(() => {
     setUserId(getStoredUserId());
     commerceApi.dashboard().then(setStats).catch(() => setStats(null));
-    commerceApi.products("", "").then((items) => setProducts(items.slice(0, 12))).catch(() => setProducts([]));
+    fetchMetrics().then(setMetrics).catch(() => setMetrics(null));
+    commerceApi.products("", "").then((items) => setProducts(items.slice(0, 8))).catch(() => setProducts([]));
   }, []);
 
-  const marketStats = useMemo(
+  const orderCount = stats?.orders.count ?? null;
+  const productCount = stats?.products.count ?? null;
+  const refundCount = stats?.refunds.count ?? null;
+  const complaintCount = stats?.complaints.count ?? null;
+  const toolRate = metrics?.tool_calls.overall_success_rate ?? null;
+
+  const statItems = useMemo(
     () => [
-      { label: "商品", value: stats?.products.count ?? "--" },
-      { label: "订单", value: stats?.orders.count ?? "--" },
-      { label: "退款", value: stats?.refunds.count ?? "--" },
-      { label: "投诉", value: stats?.complaints.count ?? "--" },
+      { label: "在库商品", value: productCount },
+      { label: "真实订单", value: orderCount },
+      { label: "退款工单", value: refundCount },
+      { label: "投诉工单", value: complaintCount },
     ],
-    [stats],
+    [productCount, orderCount, refundCount, complaintCount],
   );
 
-  const dealProducts = products.slice(0, 4);
+  const toolBars = useMemo(() => {
+    if (!metrics) return [];
+    const labels: Record<string, string> = {
+      query_order: "查订单",
+      logistics_query: "查物流",
+      refund_apply: "退款",
+      knowledge_search: "知识检索",
+      complaint_lookup: "查投诉",
+    };
+    const byTool = metrics.tool_calls.by_tool || {};
+    const successByTool = metrics.tool_calls.success_by_tool || {};
+    return Object.keys(labels)
+      .filter((name) => (byTool[name] || 0) > 0)
+      .slice(0, 5)
+      .map((name) => {
+        const total = byTool[name] || 0;
+        const success = successByTool[name] || 0;
+        return {
+          label: labels[name],
+          rate: total > 0 ? Math.round((success / total) * 100) : 0,
+          count: total,
+        };
+      });
+  }, [metrics]);
+
+  const capabilities = useMemo(
+    () => [
+      {
+        icon: PackageSearch,
+        title: "查订单",
+        desc: "实时核对订单、支付与商品明细，一句话直达真实数据库。",
+        accent: orderCount != null ? `${orderCount} 单真实订单在库` : "订单数据实时可读",
+        span: "md:col-span-2",
+      },
+      {
+        icon: Truck,
+        title: "追物流",
+        desc: "轨迹、时效、异常件一站追踪，物流状态张口即得。",
+        accent: "轨迹事件实时可读",
+        span: "",
+      },
+      {
+        icon: ReceiptText,
+        title: "退款售后",
+        desc: "七天无理由、到账时效、拒绝场景，规则内一步办妥。",
+        accent: refundCount != null ? `${refundCount} 张退款工单已处理` : "退款流程全链路可查",
+        span: "",
+      },
+      {
+        icon: Megaphone,
+        title: "投诉升级",
+        desc: "受理、分类、升级、主管跟进，复杂问题不漏一环。",
+        accent: complaintCount != null ? `${complaintCount} 张投诉工单在跟进` : "投诉升级通道在线",
+        span: "",
+      },
+      {
+        icon: Headset,
+        title: "转人工",
+        desc: "超出规则的问题无缝转接人工坐席，排队状态实时可查。",
+        accent: "人工通道实时排队",
+        span: "",
+      },
+      {
+        icon: BookOpenText,
+        title: "知识问答",
+        desc: "退款、物流、优惠券、商品参数，10 类企业知识即问即答。",
+        accent: metrics ? `${metrics.tool_calls.by_tool?.knowledge_search ?? 0} 次知识检索真实发生` : "企业知识库已索引",
+        span: "md:col-span-3",
+      },
+    ],
+    [orderCount, refundCount, complaintCount, metrics],
+  );
 
   return (
     <SiteShell>
-      <section className="overflow-hidden rounded-[28px] bg-gradient-to-br from-[#15151f] via-[#201522] to-[#ff2442] p-4 text-white shadow-[0_24px_70px_rgba(255,36,66,0.22)] md:p-6">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch">
-          <div className="flex min-w-0 flex-1 flex-col justify-between">
-            <div>
-              <div className="inline-flex rounded-full bg-white/12 px-3 py-1 text-xs font-bold text-white/85">小易电商助手 抖音商城风格</div>
-              <h1 className="mt-4 max-w-2xl text-4xl font-black leading-tight md:text-6xl">
-                边逛边问，AI 导购帮你把服务接住
-              </h1>
-              <p className="mt-4 max-w-xl text-sm leading-7 text-white/75 md:text-base">
-                逛商城、查订单、追物流、退款、投诉，一句话交给 AI 导购。它不只是回答，而是直接帮你把售后单据、投诉工单、人工转接都办好。
-              </p>
+      {/* ══ Hero 区：AI 能力为视觉 C 位 ══ */}
+      <section className="rise-in relative overflow-hidden rounded-2xl border border-line bg-surface">
+        <div className="hero-glow pointer-events-none absolute -top-40 left-1/4 h-80 w-[42rem] rounded-full bg-accent/15 blur-3xl" />
+        <div className="relative grid gap-8 p-6 md:p-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-bold text-accent">
+              <Sparkles className="h-3.5 w-3.5" />
+              小易 AI 电商助手 · 任务执行型 Agent
             </div>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link href="/products" className="inline-flex items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-black text-[#ff2442] shadow-lg transition hover:-translate-y-0.5">
+            <h1 className="mt-5 max-w-2xl text-4xl font-black leading-tight tracking-tight text-primary md:text-6xl">
+              一句话，AI 帮你把售后办完
+            </h1>
+            <p className="mt-5 max-w-xl text-sm leading-7 text-secondary md:text-base">
+              查订单、追物流、退款、投诉、转人工——不是只回答问题，而是直接读写真实业务库，把单据和工单都办好。所有回答有据可查，所有写入必经确认。
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => openAgent(userId || undefined)}
+                className="inline-flex items-center gap-2 rounded-xl bg-accent-gradient px-6 py-3 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:shadow-accent-glow"
+              >
+                立即对话
+                <ArrowRight className="h-4 w-4" />
+              </button>
+              <Link
+                href="/products"
+                className="inline-flex items-center rounded-xl border border-line bg-elevated px-6 py-3 text-sm font-bold text-primary transition hover:-translate-y-0.5 hover:border-accent/60 hover:text-accent"
+              >
                 逛商城
               </Link>
-              <AgentEntry userId={userId || undefined} label="问AI导购" />
             </div>
           </div>
 
-          <div className="relative min-h-[260px] overflow-hidden rounded-[24px] bg-white/10 lg:w-[370px]">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,255,255,0.28),transparent_45%)]" />
+          {/* 数字人 + 对话预览气泡 */}
+          <div className="relative mx-auto w-full max-w-sm">
+            <div className="assistant-aura absolute bottom-8 left-1/2 h-40 w-64 rounded-full bg-accent/30 blur-2xl" />
             <img
               src="/assistant/ai-assistant-avatar.png"
-              alt="小易电商助手 AI 助手"
-              className="assistant-avatar-float absolute bottom-0 left-1/2 h-[300px] w-[300px] -translate-x-1/2 object-contain"
+              alt="小易 AI 助手"
+              className="assistant-avatar-float relative z-10 mx-auto h-[280px] w-[280px] object-contain"
             />
-            <div className="absolute bottom-4 left-4 right-4 rounded-2xl bg-white/92 p-3 text-slate-950 shadow-xl backdrop-blur">
-              <div className="text-xs font-bold text-[#ff2442]">AI 导购在线</div>
-              <div className="mt-1 text-sm font-black">咨询商品、订单、物流、退款都可以</div>
+            <div className="relative z-20 -mt-10 space-y-2">
+              <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-accent px-4 py-2.5 text-xs font-semibold leading-5 text-white shadow-lg">
+                订单 ORD_DEMO_003 的退款帮我办一下
+              </div>
+              <div className="w-fit max-w-[92%] rounded-2xl rounded-bl-sm border border-line bg-elevated px-4 py-2.5 text-xs leading-5 text-primary shadow-lg">
+                退款已提交，单号 RF_DEMO_002，审核通过后 1-3 个工作日原路退回。物流轨迹我也一并核对了。
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="mt-4 rounded-[24px] bg-white p-4 shadow-[0_14px_40px_rgba(15,23,42,0.06)]">
-        <div className="flex items-center rounded-full bg-[#f5f5f6] px-4 py-3">
-          <span className="mr-2 text-[#ff2442]">⌕</span>
-          <Link href="/products" className="flex-1 text-sm font-semibold text-slate-400">
-            搜索商品、品牌、售后问题
-          </Link>
-          <span className="rounded-full bg-[#ff2442] px-4 py-1.5 text-xs font-black text-white">搜索</span>
+      {/* ══ 能力 Bento 网格 ══ */}
+      <section className="mt-6">
+        <div className="rise-in flex items-end justify-between">
+          <div>
+            <h2 className="text-2xl font-black tracking-tight text-primary">AI 能力全景</h2>
+            <p className="mt-1 text-sm text-secondary">六个能力域，全部由真实工具与业务数据驱动。</p>
+          </div>
         </div>
-
-        <div className="mt-4 grid grid-cols-4 gap-3 md:grid-cols-8">
-          {channels.map((item) => (
-            item.agent ? (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => window.dispatchEvent(new CustomEvent("commerce:open-agent", { detail: { user_id: userId || undefined } }))}
-                className="group text-center"
-              >
-                <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-[#fff1f3] to-[#fff7ed] text-sm font-black text-[#ff2442] transition group-hover:-translate-y-0.5">
-                  {item.icon}
-                </div>
-                <div className="mt-2 text-xs font-semibold text-slate-700">{item.label}</div>
-              </button>
-            ) : (
-            <Link key={item.label} href={item.href} className="group text-center">
-              <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-[#fff1f3] to-[#fff7ed] text-sm font-black text-[#ff2442] transition group-hover:-translate-y-0.5">
-                {item.icon}
+        <div className="rise-group mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+          {capabilities.map((item) => (
+            <div
+              key={item.title}
+              className={`group relative overflow-hidden rounded-xl border border-line bg-surface p-5 shadow-card-inset transition duration-300 hover:-translate-y-1 hover:border-accent/60 ${item.span}`}
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/12 text-accent transition group-hover:bg-accent/20">
+                <item.icon className="h-5 w-5" />
               </div>
-              <div className="mt-2 text-xs font-semibold text-slate-700">{item.label}</div>
-            </Link>
-            )
+              <div className="mt-4 text-base font-black text-primary">{item.title}</div>
+              <p className="mt-1.5 text-[13px] leading-6 text-secondary">{item.desc}</p>
+              <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-line bg-elevated px-2.5 py-1 text-[11px] font-semibold text-accent">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                {item.accent}
+              </div>
+            </div>
           ))}
         </div>
       </section>
 
-      <section className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-[24px] bg-gradient-to-r from-[#fff1f3] via-white to-[#fff7ed] p-5 shadow-[0_14px_40px_rgba(255,36,66,0.08)]">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-black text-[#ff2442]">低价秒杀</div>
-              <h2 className="mt-1 text-2xl font-black text-slate-950">今日超值推荐</h2>
-            </div>
-            <Link href="/products" className="rounded-full bg-slate-950 px-4 py-2 text-xs font-bold text-white">
-              更多
-            </Link>
+      {/* ══ 实时业务数据带 ══ */}
+      <section className="rise-in mt-6 rounded-2xl border border-line bg-surface p-6 shadow-card-inset md:p-8">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="text-xl font-black tracking-tight text-primary">实时业务数据</h2>
+            <p className="mt-1 text-sm text-secondary">商品、订单、退款、投诉由 MySQL 真实驱动，AI 直接读写。</p>
           </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {dealProducts.length > 0 ? dealProducts.map((product) => (
-              <Link key={product.product_id} href={`/products/${product.product_id}`} className="overflow-hidden rounded-2xl bg-white shadow-sm transition hover:-translate-y-0.5">
-                <div className="relative aspect-square bg-slate-100">
-                  <Image src={productImage(product.images?.[0]?.image_url)} alt={product.product_name} fill className="object-cover" sizes="180px" unoptimized />
+          {toolRate != null && (
+            <div className="text-sm font-bold text-success">工具调用成功率 {toolRate}%</div>
+          )}
+        </div>
+        <div className="rise-group mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {statItems.map((item) => (
+            <StatNumber key={item.label} label={item.label} value={item.value} />
+          ))}
+        </div>
+        {toolBars.length > 0 && (
+          <div className="mt-6 grid gap-2.5 rounded-xl border border-line bg-elevated p-4 sm:grid-cols-2 lg:grid-cols-5">
+            {toolBars.map((bar) => (
+              <div key={bar.label} className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-semibold">
+                  <span className="text-secondary">{bar.label}</span>
+                  <span className="tabular-nums text-primary">{bar.rate}%</span>
                 </div>
-                <div className="p-3">
-                  <div className="line-clamp-1 text-xs font-bold text-slate-800">{product.product_name}</div>
-                  <div className="mt-1 text-base font-black text-[#ff2442]">{formatCurrency(product.price)}</div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-base">
+                  <div
+                    className="h-full rounded-full bg-accent-gradient transition-all duration-700"
+                    style={{ width: `${bar.rate}%` }}
+                  />
                 </div>
-              </Link>
-            )) : fallbackCards.map((item) => (
-              <div key={item} className="rounded-2xl border border-dashed border-pink-100 bg-white/70 p-4 text-sm font-semibold leading-6 text-slate-500">
-                {item}
+                <div className="text-[10px] text-tertiary">{bar.count} 次调用</div>
               </div>
             ))}
           </div>
-        </div>
-
-        <div className="rounded-[24px] bg-white p-5 shadow-[0_14px_40px_rgba(15,23,42,0.06)]">
-          <div className="text-sm font-black text-slate-950">业务数据面板</div>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            {marketStats.map((item) => (
-              <div key={item.label} className="rounded-2xl bg-[#f7f7f8] p-4">
-                <div className="text-2xl font-black text-slate-950">{item.value}</div>
-                <div className="mt-1 text-xs font-semibold text-slate-500">{item.label}</div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 rounded-2xl bg-slate-950 p-4 text-white">
-            <div className="text-xs font-bold text-white/60">全链路真实数据</div>
-            <div className="mt-1 text-sm font-black">商品、订单、物流、退款、投诉均由 MySQL 真实驱动，AI 导购直接读写业务库。</div>
-          </div>
-        </div>
+        )}
       </section>
 
-      <section className="mt-6">
+      {/* ══ 精选商品（降级为小卡片流） ══ */}
+      <section className="rise-in mt-6">
         <div className="flex items-end justify-between">
           <div>
-            <h2 className="text-2xl font-black">猜你喜欢</h2>
-            <p className="mt-1 text-sm text-slate-500">AI 导购基于你的浏览与购买记录做个性化推荐。</p>
+            <h2 className="text-xl font-black tracking-tight text-primary">精选商品</h2>
+            <p className="mt-1 text-sm text-secondary">真实类目、价格与库存，来自业务数据库。</p>
           </div>
-          <Link href="/products" className="text-sm font-black text-[#ff2442]">进入商城 &gt;</Link>
+          <Link href="/products" className="text-sm font-bold text-accent transition hover:text-accent-hover">
+            进入商城 &gt;
+          </Link>
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rise-group mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {products.length > 0 ? products.map((product) => (
-            <Link key={product.product_id} href={`/products/${product.product_id}`} className="overflow-hidden rounded-[18px] bg-white shadow-[0_10px_30px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5">
-              <div className="relative aspect-[3/4] bg-gradient-to-b from-slate-50 to-slate-100">
-                <Image src={productImage(product.images?.[0]?.image_url)} alt={product.product_name} fill className="object-cover" sizes="25vw" unoptimized />
+            <Link
+              key={product.product_id}
+              href={`/products/${product.product_id}`}
+              className="group overflow-hidden rounded-xl border border-line bg-surface shadow-card-inset transition hover:-translate-y-0.5 hover:border-accent/60"
+            >
+              <div className="relative aspect-[4/3] bg-elevated">
+                <Image
+                  src={productImage(product.images?.[0]?.image_url)}
+                  alt={product.product_name}
+                  fill
+                  className="object-cover transition group-hover:scale-[1.02]"
+                  sizes="25vw"
+                  unoptimized
+                />
               </div>
               <div className="p-3">
-                <div className="line-clamp-2 min-h-10 text-sm font-bold leading-5 text-slate-950">{product.product_name}</div>
-                <div className="mt-2 flex items-end justify-between">
-                  <div className="text-lg font-black text-[#ff2442]">{formatCurrency(product.price)}</div>
-                  <div className="text-xs text-slate-400">已售 1.2万+</div>
+                <div className="line-clamp-1 text-sm font-bold text-primary">{product.product_name}</div>
+                <div className="mt-1.5 flex items-end justify-between">
+                  <div className="ai-price text-lg">{formatCurrency(product.price)}</div>
+                  <div className="text-[11px] text-tertiary">可售 {product.available_quantity ?? 0}</div>
                 </div>
               </div>
             </Link>
           )) : (
-            <div className="col-span-full rounded-[24px] border border-dashed border-pink-100 bg-white p-8 text-center">
-              <div className="text-lg font-black text-slate-950">商品加载中</div>
-              <p className="mt-2 text-sm text-slate-500">正在从业务数据库读取商品，稍候片刻即可看到最新在售商品。</p>
+            <div className="col-span-full rounded-xl border border-dashed border-line bg-surface p-8 text-center">
+              <div className="text-base font-black text-primary">商品加载中</div>
+              <p className="mt-2 text-sm text-secondary">正在从业务数据库读取商品，稍候片刻即可看到最新在售商品。</p>
             </div>
           )}
         </div>
       </section>
     </SiteShell>
+  );
+}
+
+/** 数据带大数字（tabular-nums + 滚动动画） */
+function StatNumber({ label, value }: { label: string; value: number | null }) {
+  const display = useCountUp(value);
+  return (
+    <div className="rounded-xl border border-line bg-elevated p-4">
+      <div className="text-3xl font-black tabular-nums text-primary md:text-4xl">
+        {value == null ? "--" : display}
+      </div>
+      <div className="mt-1 text-xs font-semibold text-secondary">{label}</div>
+    </div>
   );
 }
