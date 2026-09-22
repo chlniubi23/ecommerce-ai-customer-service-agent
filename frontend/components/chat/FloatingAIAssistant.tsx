@@ -10,6 +10,27 @@ import { createUserMessage, generateMessageId, type Message } from "@/types/mess
 import type { AgentTraceData } from "@/types/trace";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import {
+  AlertTriangle,
+  BookOpenText,
+  Brain,
+  ClipboardList,
+  Headset,
+  KeyRound,
+  MapPin,
+  Megaphone,
+  Package,
+  PackageSearch,
+  ReceiptText,
+  RefreshCcw,
+  Sparkles,
+  ThumbsDown,
+  ThumbsUp,
+  TicketPercent,
+  Truck,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 
 const SESSION_KEY = "commerce_floating_agent_session";
 const OPEN_EVENT = "commerce:open-agent";
@@ -61,17 +82,17 @@ const signedInSuggestionBatches = [
 // 面试/演示时照着点即可，每个 prompt 都能真实命中对应 Agent 并执行动作。
 // requiresOrder: 该场景必须先绑定一个订单。用户未选单时点击 → 先弹订单选择窗口，
 // 选完再带着订单执行；已选单则直接针对该订单执行。
-type DemoScenario = { icon: string; label: string; desc: string; prompt: string; requiresLogin?: boolean; requiresOrder?: boolean };
+type DemoScenario = { icon: LucideIcon; label: string; desc: string; prompt: string; requiresLogin?: boolean; requiresOrder?: boolean };
 
 const DEMO_SCENARIOS: DemoScenario[] = [
-  { icon: "📦", label: "查订单", desc: "看最近订单状态", prompt: "帮我看看这个订单现在什么状态", requiresLogin: true, requiresOrder: true },
-  { icon: "🚚", label: "追物流", desc: "快递到哪了", prompt: "这个订单的快递到哪了？预计什么时候到", requiresLogin: true, requiresOrder: true },
-  { icon: "💰", label: "退款", desc: "直接发起退款", prompt: "我想申请退款，帮我处理一下这个订单", requiresLogin: true, requiresOrder: true },
-  { icon: "✨", label: "推荐", desc: "按我的历史推荐", prompt: "根据我买过的东西，帮我推荐几款值得入手的商品", requiresLogin: true },
-  { icon: "🎫", label: "投诉", desc: "创建投诉工单", prompt: "我要投诉，帮我登记一下这个订单", requiresLogin: true, requiresOrder: true },
-  { icon: "🎁", label: "优惠券", desc: "查可用券", prompt: "我现在有哪些优惠券可以用？", requiresLogin: true },
-  { icon: "📚", label: "问规则", desc: "查平台政策", prompt: "七天无理由退货的规则是什么？" },
-  { icon: "👤", label: "转人工", desc: "接入人工客服", prompt: "帮我转人工客服", requiresLogin: true },
+  { icon: PackageSearch, label: "查订单", desc: "看最近订单状态", prompt: "帮我看看这个订单现在什么状态", requiresLogin: true, requiresOrder: true },
+  { icon: Truck, label: "追物流", desc: "快递到哪了", prompt: "这个订单的快递到哪了？预计什么时候到", requiresLogin: true, requiresOrder: true },
+  { icon: ReceiptText, label: "退款", desc: "直接发起退款", prompt: "我想申请退款，帮我处理一下这个订单", requiresLogin: true, requiresOrder: true },
+  { icon: Sparkles, label: "推荐", desc: "按我的历史推荐", prompt: "根据我买过的东西，帮我推荐几款值得入手的商品", requiresLogin: true },
+  { icon: Megaphone, label: "投诉", desc: "创建投诉工单", prompt: "我要投诉，帮我登记一下这个订单", requiresLogin: true, requiresOrder: true },
+  { icon: TicketPercent, label: "优惠券", desc: "查可用券", prompt: "我现在有哪些优惠券可以用？", requiresLogin: true },
+  { icon: BookOpenText, label: "问规则", desc: "查平台政策", prompt: "七天无理由退货的规则是什么？" },
+  { icon: Headset, label: "转人工", desc: "接入人工客服", prompt: "帮我转人工客服", requiresLogin: true },
 ];
 
 function createFloatingSessionId() {
@@ -273,39 +294,9 @@ function flowLabel(name?: string) {
 
 // ─── Round 1 helpers ────────────────────────────────────────────────────────
 
-/** Returns a hex accent color keyed to the agent flow, used as an inline border-left color on AI bubbles. */
-function getFlowAccentColor(flowName?: string): string {
-  if (!flowName) return "#e2e8f0";
-  if (/Order/.test(flowName))             return "#60a5fa"; // blue-400
-  if (/Logistics/.test(flowName))         return "#a78bfa"; // violet-400
-  if (/Refund/.test(flowName))            return "#34d399"; // emerald-400
-  if (/Ticket|Complaint/.test(flowName))  return "#fb7185"; // rose-400
-  if (/Product/.test(flowName))           return "#fbbf24"; // amber-400
-  if (/Human/.test(flowName))             return "#94a3b8"; // slate-400
-  if (/Multi/.test(flowName))             return "#a78bfa"; // violet-400
-  if (/Coupon/.test(flowName))            return "#f472b6"; // pink-400
-  if (/Knowledge/.test(flowName))         return "#67e8f9"; // cyan-300
-  return "#93c5fd";                                          // blue-300
-}
-
-/** Per-scenario gradient config used on the demo scenario cards. */
-const SCENARIO_CARD_COLORS: Record<string, { from: string; to: string; shadow: string }> = {
-  "查订单": { from: "#2563eb", to: "#1d4ed8", shadow: "rgba(37,99,235,0.30)" },
-  "追物流": { from: "#7c3aed", to: "#6d28d9", shadow: "rgba(124,58,237,0.30)" },
-  "退款":   { from: "#059669", to: "#047857", shadow: "rgba(5,150,105,0.30)" },
-  "推荐":   { from: "#d97706", to: "#b45309", shadow: "rgba(217,119,6,0.30)" },
-  "投诉":   { from: "#e11d48", to: "#be123c", shadow: "rgba(225,29,72,0.30)" },
-  "优惠券": { from: "#db2777", to: "#be185d", shadow: "rgba(219,39,119,0.30)" },
-  "问规则": { from: "#0891b2", to: "#0e7490", shadow: "rgba(8,145,178,0.30)" },
-  "转人工": { from: "#475569", to: "#334155", shadow: "rgba(71,85,105,0.30)" },
-};
-
-function scenarioCardStyle(label: string): React.CSSProperties {
-  const cfg = SCENARIO_CARD_COLORS[label] ?? { from: "#2563eb", to: "#1d4ed8", shadow: "rgba(37,99,235,0.30)" };
-  return {
-    background: `linear-gradient(135deg, ${cfg.from}, ${cfg.to})`,
-    boxShadow: `0 6px 20px ${cfg.shadow}`,
-  };
+/** AI 气泡左侧强调色：Dark Premium 全站唯一主色 accent（不再按 Flow 分色）。 */
+function getFlowAccentColor(_flowName?: string): string {
+  return "var(--accent)";
 }
 
 // ─── 数字人 Hero 头部：直接充当面板头部，承载名字/状态 + 清空/展开/关闭控制 ──────────
@@ -327,10 +318,10 @@ function AssistantHeroBanner({
   showReset: boolean;
 }) {
   return (
-    <section className="relative shrink-0 overflow-hidden bg-gradient-to-br from-[#1e3a8a] via-[#4338ca] to-[#7c3aed] px-4 py-3.5 shadow-lg">
+    <section className="relative shrink-0 overflow-hidden bg-elevated/90 backdrop-blur-xl border-b border-line px-4 py-3.5">
       {/* 背景装饰光斑 */}
-      <span className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-      <span className="pointer-events-none absolute -bottom-12 -left-8 h-36 w-36 rounded-full bg-cyan-300/20 blur-2xl" />
+      <span className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-accent/20 blur-2xl" />
+      <span className="pointer-events-none absolute -bottom-12 -left-8 h-36 w-36 rounded-full bg-accent/15 blur-2xl" />
       {/* 网格纹理 */}
       <span
         className="pointer-events-none absolute inset-0 opacity-[0.07]"
@@ -352,16 +343,16 @@ function AssistantHeroBanner({
       <div className="relative flex items-center gap-4">
         {/* 大尺寸数字人形象 */}
         <div className="relative shrink-0">
-          <span className="assistant-aura absolute inset-0 rounded-full bg-cyan-300/40" />
-          <div className="relative h-[72px] w-[72px] overflow-hidden rounded-full bg-white/95 shadow-xl ring-4 ring-white/40">
+          <span className="assistant-aura absolute inset-0 rounded-full bg-accent/35" />
+          <div className="relative h-[72px] w-[72px] overflow-hidden rounded-full bg-elevated shadow-xl ring-4 ring-line">
             <img
               src="/assistant/ai-assistant-avatar.png"
               alt={ASSISTANT_NAME}
               className="assistant-avatar-3d absolute inset-0 h-full w-full object-cover object-center"
             />
           </div>
-          <span className="absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-[#4338ca] bg-emerald-500">
-            <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400 opacity-75" />
+          <span className="absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-elevated bg-success">
+            <span className="absolute inset-0 animate-ping rounded-full bg-success opacity-75" />
             <span className="relative h-1 w-1 rounded-full bg-white" />
           </span>
         </div>
@@ -384,14 +375,14 @@ function AssistantHeroBanner({
 
 // ─── Capability-aware loading phase messages ─────────────────────────────────
 const CAPABILITY_LOADING_PHASES: Record<AgentCapability, string[]> = {
-  logistics: ["🚚 连接物流系统...", "📡 追踪快递轨迹...", "🗺️ 定位当前位置..."],
-  order:     ["📦 读取订单数据...", "🔍 分析订单状态...", "📋 整理订单详情..."],
-  refund:    ["💰 查询退款记录...", "📝 核对退款资格...", "⚡ 处理退款申请..."],
-  complaint: ["🎫 核查投诉记录...", "📌 创建工单...",    "🔔 通知处理团队..."],
-  human:     ["👤 查询客服排队...", "📞 连接人工坐席...", "⏳ 正在分配客服..."],
-  product:   ["✨ 检索商品信息...", "💡 匹配推荐算法...", "🛍️ 个性化分析..."],
-  knowledge: ["📚 检索知识库...",   "🔍 匹配相关规则...", "📖 整理答案内容..."],
-  summary:   ["🤖 分析服务状态...", "🔗 调用 AI Agent...", "✍️ 生成回复中..."],
+  logistics: ["连接物流系统...", "追踪快递轨迹...", "定位当前位置..."],
+  order:     ["读取订单数据...", "分析订单状态...", "整理订单详情..."],
+  refund:    ["查询退款记录...", "核对退款资格...", "处理退款申请..."],
+  complaint: ["核查投诉记录...", "创建工单...",    "通知处理团队..."],
+  human:     ["查询客服排队...", "连接人工坐席...", "正在分配客服..."],
+  product:   ["检索商品信息...", "匹配推荐算法...", "个性化分析..."],
+  knowledge: ["检索知识库...",   "匹配相关规则...", "整理答案内容..."],
+  summary:   ["分析服务状态...", "调用 AI Agent...", "生成回复中..."],
 };
 
 /** Cycles through capability-specific status phrases while the backend processes the request. */
@@ -403,13 +394,13 @@ function SmartLoadingIndicator({ capability }: { capability: AgentCapability }) 
     return () => clearInterval(timer);
   }, [phases.length]);
   return (
-    <div className="flex items-center gap-2.5 rounded-2xl border border-blue-200/50 bg-gradient-to-r from-blue-500/[0.07] to-violet-500/[0.07] px-4 py-2.5 shadow-sm">
+    <div className="flex items-center gap-2.5 rounded-2xl border border-accent/30 bg-accent/[0.07] px-4 py-2.5 shadow-card-inset">
       <div className="flex items-center gap-1">
-        <span className="agent-loading-dot h-1.5 w-1.5 rounded-full bg-gradient-to-br from-blue-500 to-violet-500" />
-        <span className="agent-loading-dot h-1.5 w-1.5 rounded-full bg-gradient-to-br from-blue-500 to-violet-500" />
-        <span className="agent-loading-dot h-1.5 w-1.5 rounded-full bg-gradient-to-br from-blue-500 to-violet-500" />
+        <span className="agent-loading-dot h-1.5 w-1.5 rounded-full bg-accent" />
+        <span className="agent-loading-dot h-1.5 w-1.5 rounded-full bg-accent" />
+        <span className="agent-loading-dot h-1.5 w-1.5 rounded-full bg-accent" />
       </div>
-      <span className="text-[11px] font-semibold text-slate-600">{phases[phase]}</span>
+      <span className="text-[11px] font-semibold text-secondary">{phases[phase]}</span>
     </div>
   );
 }
@@ -417,14 +408,14 @@ function SmartLoadingIndicator({ capability }: { capability: AgentCapability }) 
 /** Placeholder shown while user insights are loading — mirrors the real stats layout. */
 function SkeletonInsights() {
   return (
-    <section className="rounded-2xl border border-blue-100 bg-gradient-to-br from-white to-blue-50/40 p-3.5 shadow-sm">
+    <section className="rounded-2xl border border-accent/30 bg-surface p-3.5 shadow-card-inset">
       <div className="flex items-center justify-between gap-2">
         <div className="skeleton h-3.5 w-28" />
         <div className="skeleton h-6 w-16 rounded-full" />
       </div>
       <div className="mt-2.5 grid grid-cols-3 gap-2">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="rounded-xl bg-slate-50 p-2">
+          <div key={i} className="rounded-xl bg-elevated p-2">
             <div className="skeleton mx-auto mb-1 h-7 w-8" />
             <div className="skeleton mx-auto h-2.5 w-14" />
           </div>
@@ -449,11 +440,11 @@ function MessageFeedback({ msgId: _msgId }: { msgId: string }) {
         title="有帮助"
         className={`grid h-6 w-6 place-items-center rounded-full text-sm transition hover:scale-110 ${
           vote === "up"
-            ? "bg-emerald-100 text-emerald-600"
-            : "text-slate-300 hover:bg-slate-100 hover:text-slate-500"
+            ? "bg-success/15 text-success"
+            : "text-tertiary hover:bg-elevated hover:text-secondary"
         }`}
       >
-        👍
+        <ThumbsUp className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
@@ -461,15 +452,15 @@ function MessageFeedback({ msgId: _msgId }: { msgId: string }) {
         title="没帮助"
         className={`grid h-6 w-6 place-items-center rounded-full text-sm transition hover:scale-110 ${
           vote === "down"
-            ? "bg-red-100 text-red-500"
-            : "text-slate-300 hover:bg-slate-100 hover:text-slate-500"
+            ? "bg-danger/15 text-danger"
+            : "text-tertiary hover:bg-elevated hover:text-secondary"
         }`}
       >
-        👎
+        <ThumbsDown className="h-3.5 w-3.5" />
       </button>
       {vote && (
-        <span className="text-[10px] font-medium text-slate-400">
-          {vote === "up" ? "感谢反馈 ✦" : "已记录，我们会改进"}
+        <span className="text-[10px] font-medium text-tertiary">
+          {vote === "up" ? "感谢反馈" : "已记录，我们会改进"}
         </span>
       )}
     </div>
@@ -491,19 +482,19 @@ function AiMessageContent({ content, streaming }: { content: string; streaming: 
           ul:         ({ children }) => <ul className="mb-1.5 ml-4 list-disc space-y-0.5">{children}</ul>,
           ol:         ({ children }) => <ol className="mb-1.5 ml-4 list-decimal space-y-0.5">{children}</ol>,
           li:         ({ children }) => <li className="leading-relaxed">{children}</li>,
-          strong:     ({ children }) => <strong className="font-bold text-slate-900">{children}</strong>,
-          em:         ({ children }) => <em className="italic text-slate-600">{children}</em>,
-          h1:         ({ children }) => <p className="mb-1.5 font-black text-slate-900">{children}</p>,
-          h2:         ({ children }) => <p className="mb-1.5 font-bold text-slate-900">{children}</p>,
-          h3:         ({ children }) => <p className="mb-1 font-bold text-slate-800">{children}</p>,
-          hr:         () => <hr className="my-2 border-slate-200" />,
-          blockquote: ({ children }) => <blockquote className="border-l-2 border-blue-300 pl-2.5 italic text-slate-600">{children}</blockquote>,
-          pre:        ({ children }) => <pre className="my-1.5 overflow-x-auto rounded-lg bg-slate-100 p-2.5 text-[10px] text-slate-700">{children}</pre>,
-          code:       ({ children }) => <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-700">{children}</code>,
-          a:          ({ href, children }) => <a href={href} className="text-blue-600 underline hover:text-blue-800" target="_blank" rel="noopener noreferrer">{children}</a>,
+          strong:     ({ children }) => <strong className="font-bold text-primary">{children}</strong>,
+          em:         ({ children }) => <em className="italic text-secondary">{children}</em>,
+          h1:         ({ children }) => <p className="mb-1.5 font-black text-primary">{children}</p>,
+          h2:         ({ children }) => <p className="mb-1.5 font-bold text-primary">{children}</p>,
+          h3:         ({ children }) => <p className="mb-1 font-bold text-primary">{children}</p>,
+          hr:         () => <hr className="my-2 border-line" />,
+          blockquote: ({ children }) => <blockquote className="border-l-2 border-accent/40 pl-2.5 italic text-secondary">{children}</blockquote>,
+          pre:        ({ children }) => <pre className="my-1.5 overflow-x-auto rounded-lg bg-elevated p-2.5 text-[10px] text-secondary">{children}</pre>,
+          code:       ({ children }) => <code className="rounded bg-elevated px-1 py-0.5 font-mono text-[10px] text-secondary">{children}</code>,
+          a:          ({ href, children }) => <a href={href} className="text-accent underline hover:text-accent-hover" target="_blank" rel="noopener noreferrer">{children}</a>,
           table:      ({ children }) => <div className="mb-1.5 overflow-x-auto"><table className="w-full border-collapse text-[10px]">{children}</table></div>,
-          th:         ({ children }) => <th className="border border-slate-200 bg-slate-50 px-2 py-1 text-left font-bold text-slate-700">{children}</th>,
-          td:         ({ children }) => <td className="border border-slate-200 px-2 py-1 text-slate-700">{children}</td>,
+          th:         ({ children }) => <th className="border border-line bg-elevated px-2 py-1 text-left font-bold text-secondary">{children}</th>,
+          td:         ({ children }) => <td className="border border-line px-2 py-1 text-secondary">{children}</td>,
         }}
       >
         {content || " "}
@@ -516,7 +507,7 @@ function AiMessageContent({ content, streaming }: { content: string; streaming: 
 function AgentTimeline({ trace }: { trace: AgentTraceData | null }) {
   if (!trace) {
     return (
-      <div className="rounded-2xl bg-slate-50 p-6 text-center text-xs text-slate-400">
+      <div className="rounded-2xl bg-elevated p-6 text-center text-xs text-tertiary">
         发送一条消息后，这里会显示 Agent 的执行路径
       </div>
     );
@@ -529,26 +520,27 @@ function AgentTimeline({ trace }: { trace: AgentTraceData | null }) {
   return (
     <div className="space-y-3">
       {/* ── Intent row ── */}
-      <div className="flex items-center gap-2 rounded-xl border border-slate-100 bg-white px-3 py-2.5">
-        <span className="text-base">🧠</span>
+      <div className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2.5">
+        <Brain className="h-4 w-4 shrink-0 text-accent" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-black text-slate-800">
+            <span className="text-[11px] font-black text-primary">
               {trace.intent_desc || trace.intent || "意图识别"}
             </span>
             <span
-              className="rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white"
-              style={{ background: confPct >= 80 ? "#22c55e" : confPct >= 50 ? "#f59e0b" : "#ef4444" }}
+              className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                confPct >= 80 ? "bg-success/15 text-success" : confPct >= 50 ? "bg-warning/15 text-warning" : "bg-danger/15 text-danger"
+              }`}
             >
               {confPct}%
             </span>
           </div>
           {trace.reasoning && (
-            <p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-slate-500">{trace.reasoning}</p>
+            <p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-secondary">{trace.reasoning}</p>
           )}
         </div>
         {trace.duration_ms > 0 && (
-          <span className="shrink-0 text-[10px] font-medium text-slate-400">
+          <span className="shrink-0 text-[10px] font-medium text-tertiary">
             {(trace.duration_ms / 1000).toFixed(1)}s
           </span>
         )}
@@ -556,41 +548,41 @@ function AgentTimeline({ trace }: { trace: AgentTraceData | null }) {
 
       {/* ── Flow badge ── */}
       <div className="flex items-center gap-2 px-1">
-        <div className="h-px flex-1 bg-slate-100" />
+        <div className="h-px flex-1 bg-elevated" />
         <span
           className="rounded-full px-3 py-1 text-[10px] font-black text-white shadow-sm"
           style={{ background: flowColor }}
         >
           {flowLabel(trace.selected_flow) || trace.selected_flow || "Flow"}
         </span>
-        <div className="h-px flex-1 bg-slate-100" />
+        <div className="h-px flex-1 bg-elevated" />
       </div>
 
       {/* ── Tool call chain ── */}
       {tools.length > 0 ? (
         <div className="relative pl-6">
           {/* vertical spine */}
-          <div className="absolute left-[11px] top-2 bottom-2 w-px bg-slate-200" />
+          <div className="absolute left-[11px] top-2 bottom-2 w-px bg-line" />
           <div className="space-y-2">
             {tools.map((tc, idx) => (
               <div key={idx} className="relative flex items-start gap-2.5">
                 {/* node dot */}
                 <div
-                  className={`absolute -left-[13px] mt-1 h-3 w-3 rounded-full border-2 border-white shadow-sm ${
-                    tc.success ? "bg-emerald-400" : "bg-red-400"
+                  className={`absolute -left-[13px] mt-1 h-3 w-3 rounded-full border-2 border-surface shadow-sm ${
+                    tc.success ? "bg-success" : "bg-danger"
                   }`}
                 />
-                <div className="flex-1 rounded-xl border border-slate-100 bg-white px-3 py-2">
+                <div className="flex-1 rounded-xl border border-line bg-surface px-3 py-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold text-slate-700">
+                    <span className="text-[11px] font-bold text-secondary">
                       {tc.success ? "✓ " : "✗ "}{toolLabel(tc.tool_name)}
                     </span>
                     {tc.latency_ms != null && (
-                      <span className="text-[10px] text-slate-400">{tc.latency_ms}ms</span>
+                      <span className="text-[10px] text-tertiary">{tc.latency_ms}ms</span>
                     )}
                   </div>
                   {!tc.success && (
-                    <p className="mt-0.5 text-[10px] text-red-500">执行失败</p>
+                    <p className="mt-0.5 text-[10px] text-danger">执行失败</p>
                   )}
                 </div>
               </div>
@@ -598,14 +590,14 @@ function AgentTimeline({ trace }: { trace: AgentTraceData | null }) {
           </div>
         </div>
       ) : (
-        <p className="px-1 text-[11px] text-slate-400">本轮未调用外部工具（直接 LLM 回答）</p>
+        <p className="px-1 text-[11px] text-tertiary">本轮未调用外部工具（直接 LLM 回答）</p>
       )}
 
       {/* ── RAG indicator ── */}
       {trace.rag_used && (
-        <div className="flex items-center gap-1.5 rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-2">
-          <span className="text-sm">📚</span>
-          <span className="text-[11px] font-semibold text-cyan-700">
+        <div className="flex items-center gap-1.5 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2">
+          <BookOpenText className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <span className="text-[11px] font-semibold text-accent">
             RAG 检索命中 {trace.rag_chunks ?? "?"} 段，来源：{(trace.rag_sources || []).join("、") || "知识库"}
           </span>
         </div>
@@ -621,16 +613,16 @@ function InlineDataCard({ trace, context }: { trace: AgentTraceData; context: Ag
   if (/Order/i.test(flow) && context.order) {
     const o = context.order;
     return (
-      <div className="message-enter ml-9 mt-1.5 overflow-hidden rounded-xl border border-blue-100 bg-blue-50/50 shadow-sm">
-        <div className="flex items-center gap-2 border-b border-blue-100 px-3 py-1.5">
-          <span className="text-sm">📦</span>
-          <span className="text-[10px] font-black text-blue-700">订单快照</span>
-          <span className="ml-auto font-mono text-[10px] text-slate-400">{o.order_id}</span>
+      <div className="message-enter ml-9 mt-1.5 overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-card-inset">
+        <div className="flex items-center gap-2 border-b border-accent/30 px-3 py-1.5">
+          <Package className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <span className="text-[10px] font-black text-accent">订单快照</span>
+          <span className="ml-auto font-mono text-[10px] text-tertiary">{o.order_id}</span>
         </div>
-        <div className="grid grid-cols-3 divide-x divide-blue-100 text-center text-[10px]">
-          <div className="px-2 py-1.5"><div className="font-bold text-slate-700">{o.order_status}</div><div className="text-slate-400">订单</div></div>
-          <div className="px-2 py-1.5"><div className="font-bold text-slate-700">{o.shipping_status || "—"}</div><div className="text-slate-400">配送</div></div>
-          <div className="px-2 py-1.5"><div className="font-bold text-blue-600">{o.total_amount}{o.currency}</div><div className="text-slate-400">金额</div></div>
+        <div className="grid grid-cols-3 divide-x divide-line text-center text-[10px]">
+          <div className="px-2 py-1.5"><div className="font-bold text-secondary">{o.order_status}</div><div className="text-tertiary">订单</div></div>
+          <div className="px-2 py-1.5"><div className="font-bold text-secondary">{o.shipping_status || "—"}</div><div className="text-tertiary">配送</div></div>
+          <div className="px-2 py-1.5"><div className="font-bold text-accent">{o.total_amount}{o.currency}</div><div className="text-tertiary">金额</div></div>
         </div>
       </div>
     );
@@ -639,18 +631,23 @@ function InlineDataCard({ trace, context }: { trace: AgentTraceData; context: Ag
   if (/Logistics/i.test(flow) && context.logistics) {
     const l = context.logistics;
     return (
-      <div className="message-enter ml-9 mt-1.5 overflow-hidden rounded-xl border border-violet-100 bg-violet-50/50 shadow-sm">
-        <div className="flex items-center gap-2 border-b border-violet-100 px-3 py-1.5">
-          <span className="text-sm">🚚</span>
-          <span className="text-[10px] font-black text-violet-700">物流快照</span>
-          <span className="ml-auto font-mono text-[10px] text-slate-400">{l.tracking_no}</span>
+      <div className="message-enter ml-9 mt-1.5 overflow-hidden rounded-xl border border-line bg-surface shadow-card-inset">
+        <div className="flex items-center gap-2 border-b border-line bg-elevated px-3 py-1.5">
+          <Truck className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <span className="text-[10px] font-black text-accent">物流快照</span>
+          <span className="ml-auto font-mono text-[10px] text-tertiary">{l.tracking_no}</span>
         </div>
         <div className="px-3 py-2 text-[10px]">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="rounded-full bg-violet-200 px-2 py-0.5 font-bold text-violet-700">{l.current_status}</span>
-            <span className="text-slate-500">{l.carrier_name}</span>
+            <span className="rounded-full bg-accent/15 px-2 py-0.5 font-bold text-accent">{l.current_status}</span>
+            <span className="text-secondary">{l.carrier_name}</span>
           </div>
-          {l.current_location && <p className="mt-1 text-slate-500">📍 {l.current_location}</p>}
+          {l.current_location && (
+            <p className="mt-1 flex items-center gap-1 text-secondary">
+              <MapPin className="h-3 w-3 shrink-0" />
+              {l.current_location}
+            </p>
+          )}
         </div>
       </div>
     );
@@ -659,15 +656,15 @@ function InlineDataCard({ trace, context }: { trace: AgentTraceData; context: Ag
   if (/Refund/i.test(flow) && context.refund) {
     const r = context.refund;
     return (
-      <div className="message-enter ml-9 mt-1.5 overflow-hidden rounded-xl border border-emerald-100 bg-emerald-50/50 shadow-sm">
-        <div className="flex items-center gap-2 border-b border-emerald-100 px-3 py-1.5">
-          <span className="text-sm">💰</span>
-          <span className="text-[10px] font-black text-emerald-700">退款快照</span>
-          <span className="ml-auto font-mono text-[10px] text-slate-400">{r.refund_id}</span>
+      <div className="message-enter ml-9 mt-1.5 overflow-hidden rounded-xl border border-line bg-surface shadow-card-inset">
+        <div className="flex items-center gap-2 border-b border-line bg-elevated px-3 py-1.5">
+          <ReceiptText className="h-3.5 w-3.5 shrink-0 text-success" />
+          <span className="text-[10px] font-black text-success">退款快照</span>
+          <span className="ml-auto font-mono text-[10px] text-tertiary">{r.refund_id}</span>
         </div>
-        <div className="grid grid-cols-2 divide-x divide-emerald-100 text-center text-[10px]">
-          <div className="px-2 py-1.5"><div className="font-bold text-slate-700">{r.audit_status}</div><div className="text-slate-400">审核状态</div></div>
-          <div className="px-2 py-1.5"><div className="font-bold text-emerald-600">{r.refund_status}</div><div className="text-slate-400">退款状态</div></div>
+        <div className="grid grid-cols-2 divide-x divide-line text-center text-[10px]">
+          <div className="px-2 py-1.5"><div className="font-bold text-secondary">{r.audit_status}</div><div className="text-tertiary">审核状态</div></div>
+          <div className="px-2 py-1.5"><div className="font-bold text-success">{r.refund_status}</div><div className="text-tertiary">退款状态</div></div>
         </div>
       </div>
     );
@@ -678,11 +675,11 @@ function InlineDataCard({ trace, context }: { trace: AgentTraceData; context: Ag
 
 // ── 订单状态样式映射 ────────────────────────────────────────────────────────────
 function getOrderStatusStyle(status: string): { bg: string; text: string; dot: string } {
-  if (/待支付/.test(status))                        return { bg: "bg-amber-50",   text: "text-amber-700",   dot: "bg-amber-400" };
-  if (/已发货|运输中|待发货|已支付/.test(status))    return { bg: "bg-blue-50",    text: "text-blue-700",    dot: "bg-blue-500" };
-  if (/售后|异常|破损|待售后/.test(status))          return { bg: "bg-red-50",     text: "text-red-600",     dot: "bg-red-400" };
-  if (/已完成/.test(status))                         return { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" };
-  return                                              { bg: "bg-slate-50",    text: "text-slate-600",   dot: "bg-slate-400" };
+  if (/待支付/.test(status))                        return { bg: "bg-warning/10", text: "text-warning", dot: "bg-warning" };
+  if (/已发货|运输中|待发货|已支付/.test(status))    return { bg: "bg-accent/10",    text: "text-accent",    dot: "bg-accent" };
+  if (/售后|异常|破损|待售后/.test(status))          return { bg: "bg-danger/10", text: "text-danger", dot: "bg-danger" };
+  if (/已完成/.test(status))                         return { bg: "bg-success/10", text: "text-success", dot: "bg-success" };
+  return                                              { bg: "bg-elevated",    text: "text-secondary",   dot: "bg-tertiary" };
 }
 
 // ── 全宽订单选择面板（取代原来的小下拉框）─────────────────────────────────────
@@ -720,25 +717,25 @@ function OrderPickerSheet({
   });
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col bg-white">
+    <div className="absolute inset-0 z-30 flex flex-col bg-base">
       {/* 顶部标题栏 */}
-      <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3">
+      <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
         <div>
-          <div className="text-sm font-black text-slate-950">选择订单</div>
-          <div className="mt-0.5 text-[11px] text-slate-400">
+          <div className="text-sm font-black text-primary">选择订单</div>
+          <div className="mt-0.5 text-[11px] text-tertiary">
             {pendingHint ? "选中订单后，我会立即针对它执行你刚点的操作" : "选中后，提问会自动聚焦到该订单"}
           </div>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="grid h-8 w-8 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          className="grid h-8 w-8 place-items-center rounded-full text-tertiary hover:bg-elevated hover:text-secondary"
           aria-label="关闭"
         >✕</button>
       </div>
 
       {/* 状态筛选 chips */}
-      <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-slate-100 px-3 py-2">
+      <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-line px-3 py-2">
         {FILTER_TABS.map((tab) => (
           <button
             key={tab.key}
@@ -746,8 +743,8 @@ function OrderPickerSheet({
             onClick={() => setFilter(tab.key)}
             className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-bold transition ${
               filter === tab.key
-                ? "bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow-sm"
-                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                ? "bg-accent text-white shadow-card-inset"
+                : "bg-elevated text-secondary hover:border hover:border-accent/40 hover:text-accent"
             }`}
           >
             {tab.label}
@@ -758,7 +755,7 @@ function OrderPickerSheet({
       {/* 订单卡片列表 */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
         {filtered.length === 0 && (
-          <div className="mt-8 text-center text-sm text-slate-400">该分类暂无订单</div>
+          <div className="mt-8 text-center text-sm text-tertiary">该分类暂无订单</div>
         )}
         {filtered.map((order) => {
           const isSelected = selectedOrder?.order_id === order.order_id;
@@ -774,18 +771,18 @@ function OrderPickerSheet({
               onClick={() => { onSelect(order); onClose(); }}
               className={`group relative w-full rounded-2xl border-2 p-3.5 text-left transition active:scale-[0.98] ${
                 isSelected
-                  ? "border-blue-500 bg-blue-50 shadow-[0_0_0_3px_rgba(37,99,235,0.10)]"
-                  : "border-slate-100 bg-white hover:border-blue-200 hover:bg-blue-50/40"
+                  ? "border-accent bg-accent/10 shadow-[0_0_0_3px_rgba(99,102,241,0.15)]"
+                  : "border-line bg-surface hover:border-accent/40 hover:bg-accent/5"
               }`}
             >
               {/* 已选中勾 */}
               {isSelected && (
-                <span className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[10px] text-white">✓</span>
+                <span className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[10px] text-white">✓</span>
               )}
 
               {/* 第一行：订单号 + 状态 */}
               <div className="flex items-center gap-2">
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-500">
+                <span className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] font-bold text-secondary">
                   {order.order_id}
                 </span>
                 <span className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${style.bg} ${style.text}`}>
@@ -795,19 +792,22 @@ function OrderPickerSheet({
               </div>
 
               {/* 第二行：商品名（大字，最重要） */}
-              <div className="mt-2 line-clamp-2 text-sm font-bold text-slate-900 leading-snug">
+              <div className="mt-2 line-clamp-2 text-sm font-bold text-primary leading-snug">
                 {productNames}
               </div>
 
               {/* 第三行：金额 + 配送状态 */}
               <div className="mt-1.5 flex items-center justify-between">
-                <span className="text-[11px] text-slate-400">
+                <span className="text-[11px] text-tertiary">
                   {order.shipping_status && (
-                    <span className="mr-2">📦 {order.shipping_status}</span>
+                    <span className="mr-2 inline-flex items-center gap-1">
+                      <Package className="h-3 w-3" />
+                      {order.shipping_status}
+                    </span>
                   )}
                   {order.created_at && new Date(order.created_at).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" })}
                 </span>
-                <span className="text-sm font-black text-blue-600">
+                <span className="text-sm font-black text-accent">
                   ¥{order.total_amount}
                 </span>
               </div>
@@ -818,11 +818,11 @@ function OrderPickerSheet({
 
       {/* 底部：清除选择 */}
       {selectedOrder && (
-        <div className="shrink-0 border-t border-slate-100 px-4 py-2.5">
+        <div className="shrink-0 border-t border-line px-4 py-2.5">
           <button
             type="button"
             onClick={() => { onClear(); onClose(); }}
-            className="w-full rounded-xl border border-slate-200 py-2 text-xs font-bold text-slate-500 transition hover:border-red-200 hover:text-red-500"
+            className="w-full rounded-xl border border-line py-2 text-xs font-bold text-secondary transition hover:border-danger/40 hover:text-danger"
           >
             取消订单关联
           </button>
@@ -833,11 +833,11 @@ function OrderPickerSheet({
 }
 
 // ── 投诉确认卡片：后端识别到投诉意图时，前端渲染此卡片替代纯文字确认 ────────
-const COMPLAINT_TYPE_ICON: Record<string, string> = {
-  "物流问题": "🚚",
-  "质量问题": "🔧",
-  "服务态度": "👤",
-  "售后问题": "🔄",
+const COMPLAINT_TYPE_ICON: Record<string, LucideIcon> = {
+  "物流问题": Truck,
+  "质量问题": Wrench,
+  "服务态度": Headset,
+  "售后问题": RefreshCcw,
 };
 
 type PendingComplaint = {
@@ -859,28 +859,28 @@ function ComplaintConfirmCard({
   disabled?: boolean;
 }) {
   const [resolved, setResolved] = useState<"confirmed" | "cancelled" | null>(null);
-  const icon = COMPLAINT_TYPE_ICON[complaint.complaint_type] ?? "🎫";
+  const TypeIcon = COMPLAINT_TYPE_ICON[complaint.complaint_type] ?? AlertTriangle;
 
   if (resolved === "confirmed") {
     return (
-      <div className="ml-9 mt-2 flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+      <div className="ml-9 mt-2 flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-xs font-semibold text-success">
         <span>✓</span><span>已提交投诉，正在处理中</span>
       </div>
     );
   }
   if (resolved === "cancelled") {
     return (
-      <div className="ml-9 mt-2 flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-400">
+      <div className="ml-9 mt-2 flex items-center gap-2 rounded-xl bg-elevated px-3 py-2 text-xs text-tertiary">
         <span>✕</span><span>已取消，不会提交这条投诉</span>
       </div>
     );
   }
 
   return (
-    <div className="message-enter ml-9 mt-2 overflow-hidden rounded-2xl border-2 border-orange-200 bg-white shadow-md">
+    <div className="message-enter ml-9 mt-2 overflow-hidden rounded-xl border border-line bg-surface shadow-card-inset">
       {/* 卡片头部 */}
-      <div className="flex items-center gap-2 bg-gradient-to-r from-orange-500 to-red-500 px-4 py-2.5">
-        <span className="text-base">{icon}</span>
+      <div className="flex items-center gap-2 bg-accent-gradient px-4 py-2.5">
+        <TypeIcon className="h-4 w-4 shrink-0 text-white" />
         <span className="text-xs font-black text-white">投诉确认</span>
         <span className="ml-auto rounded-full bg-white/25 px-2 py-0.5 text-[10px] font-bold text-white">
           {complaint.complaint_type}
@@ -888,24 +888,24 @@ function ComplaintConfirmCard({
       </div>
       {/* 关联订单 */}
       {complaint.order_id && (
-        <div className="flex items-center gap-2 border-b border-orange-50 bg-orange-50/50 px-4 py-2">
-          <span className="text-sm">📦</span>
-          <span className="font-mono text-[11px] font-bold text-orange-700">{complaint.order_id}</span>
-          <span className="text-[10px] text-slate-400">关联订单</span>
+        <div className="flex items-center gap-2 border-b border-line bg-elevated px-4 py-2">
+          <Package className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <span className="font-mono text-[11px] font-bold text-accent">{complaint.order_id}</span>
+          <span className="text-[10px] text-tertiary">关联订单</span>
         </div>
       )}
       {/* 投诉内容 */}
       <div className="px-4 py-3">
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">投诉描述</div>
-        <p className="text-xs leading-relaxed text-slate-800">{complaint.content}</p>
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-tertiary">投诉描述</div>
+        <p className="text-xs leading-relaxed text-primary">{complaint.content}</p>
       </div>
       {/* 操作按钮 */}
-      <div className="flex gap-2 border-t border-slate-100 px-4 py-3">
+      <div className="flex gap-2 border-t border-line px-4 py-3">
         <button
           type="button"
           disabled={disabled}
           onClick={() => { setResolved("confirmed"); onConfirm(); }}
-          className="flex-1 rounded-xl bg-gradient-to-r from-orange-500 to-red-500 py-2 text-xs font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+          className="flex-1 rounded-xl bg-accent-gradient py-2 text-xs font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
         >
           ✓ 确认提交投诉
         </button>
@@ -913,7 +913,7 @@ function ComplaintConfirmCard({
           type="button"
           disabled={disabled}
           onClick={() => { setResolved("cancelled"); onCancel(); }}
-          className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-500 transition hover:border-red-200 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-xl border border-line px-4 py-2 text-xs font-bold text-secondary transition hover:border-danger/40 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
         >
           取消
         </button>
@@ -956,24 +956,24 @@ function RefundConfirmCard({
 
   if (resolved === "confirmed") {
     return (
-      <div className="ml-9 mt-2 flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+      <div className="ml-9 mt-2 flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-xs font-semibold text-success">
         <span>✓</span><span>退款申请已提交，审核结果将在 1-3 个工作日内通知</span>
       </div>
     );
   }
   if (resolved === "cancelled") {
     return (
-      <div className="ml-9 mt-2 flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-400">
+      <div className="ml-9 mt-2 flex items-center gap-2 rounded-xl bg-elevated px-3 py-2 text-xs text-tertiary">
         <span>✕</span><span>已取消，退款申请未提交</span>
       </div>
     );
   }
 
   return (
-    <div className="message-enter ml-9 mt-2 overflow-hidden rounded-2xl border-2 border-emerald-200 bg-white shadow-md">
+    <div className="message-enter ml-9 mt-2 overflow-hidden rounded-xl border border-line bg-surface shadow-card-inset">
       {/* 卡片头部 */}
-      <div className="flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-2.5">
-        <span className="text-base">💰</span>
+      <div className="flex items-center gap-2 bg-accent-gradient px-4 py-2.5">
+        <ReceiptText className="h-4 w-4 shrink-0 text-white" />
         <span className="text-xs font-black text-white">退款确认</span>
         {amount && (
           <span className="ml-auto rounded-full bg-white/25 px-2 py-0.5 text-[11px] font-black text-white">
@@ -984,12 +984,12 @@ function RefundConfirmCard({
 
       {/* 订单信息 */}
       {order && (
-        <div className="border-b border-emerald-50 bg-emerald-50/40 px-4 py-2">
+        <div className="border-b border-line bg-elevated px-4 py-2">
           <div className="flex items-center gap-2">
-            <span className="text-sm">📦</span>
+            <Package className="h-3.5 w-3.5 shrink-0 text-success" />
             <div className="min-w-0">
-              <div className="font-mono text-[10px] font-bold text-emerald-700">{order.order_id}</div>
-              <div className="truncate text-[11px] font-semibold text-slate-700">{productNames}</div>
+              <div className="font-mono text-[10px] font-bold text-success">{order.order_id}</div>
+              <div className="truncate text-[11px] font-semibold text-secondary">{productNames}</div>
             </div>
           </div>
         </div>
@@ -997,17 +997,17 @@ function RefundConfirmCard({
 
       {/* 退款原因 */}
       <div className="px-4 py-3">
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">退款原因</div>
-        <p className="text-xs leading-relaxed text-slate-800">{refund.reason}</p>
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-tertiary">退款原因</div>
+        <p className="text-xs leading-relaxed text-primary">{refund.reason}</p>
       </div>
 
       {/* 操作按钮 */}
-      <div className="flex gap-2 border-t border-slate-100 px-4 py-3">
+      <div className="flex gap-2 border-t border-line px-4 py-3">
         <button
           type="button"
           disabled={disabled}
           onClick={() => { setResolved("confirmed"); onConfirm(); }}
-          className="flex-1 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 py-2 text-xs font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+          className="flex-1 rounded-xl bg-accent-gradient py-2 text-xs font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
         >
           ✓ 确认申请退款
         </button>
@@ -1015,7 +1015,7 @@ function RefundConfirmCard({
           type="button"
           disabled={disabled}
           onClick={() => { setResolved("cancelled"); onCancel(); }}
-          className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-500 transition hover:border-red-200 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-xl border border-line px-4 py-2 text-xs font-bold text-secondary transition hover:border-danger/40 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
         >
           取消
         </button>
@@ -1279,15 +1279,15 @@ export default function FloatingAIAssistant() {
   }, [dismissEvent, send]);
 
   const renderEventBanner = () => visibleEvents.length > 0 && (
-    <div className="rounded-2xl border border-orange-100 bg-orange-50/80 p-3 shadow-sm">
+    <div className="rounded-2xl border border-warning/30 bg-warning/10 p-3 shadow-card-inset">
       <div className="flex items-start gap-3">
-        <div className="event-icon-pulse grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange-500 text-sm font-black text-white shadow-[0_4px_12px_rgba(249,115,22,0.40)]">!</div>
+        <div className="event-icon-pulse grid h-9 w-9 shrink-0 place-items-center rounded-full bg-warning text-sm font-black text-base">!</div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-black text-slate-950">{visibleEvents[0].title}</div>
-          <div className="mt-1 text-xs leading-5 text-slate-600">{visibleEvents[0].description}</div>
+          <div className="text-sm font-black text-primary">{visibleEvents[0].title}</div>
+          <div className="mt-1 text-xs leading-5 text-secondary">{visibleEvents[0].description}</div>
           <div className="mt-2 flex flex-wrap gap-2">
-            <button type="button" onClick={() => openEvent(visibleEvents[0])} className="rounded-full bg-gradient-to-r from-orange-500 to-orange-600 px-3 py-1.5 text-xs font-bold text-white shadow-[0_4px_12px_rgba(249,115,22,0.35)] transition hover:-translate-y-0.5">立即处理</button>
-            <button type="button" onClick={() => dismissEvent(visibleEvents[0])} className="rounded-full border border-orange-200 bg-white px-3 py-1.5 text-xs font-bold text-orange-500 transition hover:bg-orange-50">稍后再说</button>
+            <button type="button" onClick={() => openEvent(visibleEvents[0])} className="rounded-full bg-accent-gradient px-3 py-1.5 text-xs font-bold text-white shadow-accent-glow transition hover:-translate-y-0.5">立即处理</button>
+            <button type="button" onClick={() => dismissEvent(visibleEvents[0])} className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-bold text-secondary transition hover:border-accent/40 hover:text-accent">稍后再说</button>
           </div>
         </div>
       </div>
@@ -1303,17 +1303,17 @@ export default function FloatingAIAssistant() {
     return (
       <div className="ml-9 mt-1.5 flex flex-wrap items-center gap-1">
         {domain && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
-            <span className="h-1.5 w-1.5 rounded-full bg-white/60" />{domain}
+          <span className="inline-flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-bold text-accent shadow-card-inset">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent" />{domain}
           </span>
         )}
         {successTools.map((tc, index) => (
-          <span key={`${tc.tool_name}-${index}`} className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
+          <span key={`${tc.tool_name}-${index}`} className="inline-flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-bold text-accent shadow-card-inset">
             <span className="text-[10px]">✓</span>{toolLabel(tc.tool_name)}
           </span>
         ))}
         {typeof msgTrace.duration_ms === "number" && msgTrace.duration_ms > 0 && (
-          <span className="text-[10px] font-medium text-slate-400">{(msgTrace.duration_ms / 1000).toFixed(1)}s</span>
+          <span className="text-[10px] font-medium text-tertiary">{(msgTrace.duration_ms / 1000).toFixed(1)}s</span>
         )}
       </div>
     );
@@ -1328,31 +1328,31 @@ export default function FloatingAIAssistant() {
               不再单独占一个 tab，避免与任务面板重复。 */}
           {user && !insights && <SkeletonInsights />}
           {user && insights && (
-            <section className="rounded-2xl border border-blue-100 bg-gradient-to-br from-white to-blue-50/40 p-3.5 shadow-sm">
+            <section className="rounded-2xl border border-accent/30 bg-surface p-3.5 shadow-card-inset">
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 text-xs font-black text-slate-950"><span className="text-sm">📋</span>你的服务概览</div>
-                <button type="button" onClick={() => send("帮我总结当前订单、物流、退款和投诉情况。")} className="rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-bold text-white transition hover:bg-slate-800">一键总结</button>
+                <div className="flex items-center gap-1.5 text-xs font-black text-primary"><ClipboardList className="h-3.5 w-3.5 text-accent" />你的服务概览</div>
+                <button type="button" onClick={() => send("帮我总结当前订单、物流、退款和投诉情况。")} className="rounded-full bg-accent/15 px-2.5 py-1 text-[10px] font-bold text-accent transition hover:bg-accent/25">一键总结</button>
               </div>
               <div className="mt-2.5 grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-xl bg-blue-50 p-2 shadow-sm"><div className="text-xl font-black text-blue-600">{insights.counts.active_orders}</div><div className="text-[10px] text-blue-400">进行中订单</div></div>
-                <div className="rounded-xl bg-amber-50 p-2 shadow-sm"><div className="text-xl font-black text-amber-600">{insights.counts.open_refunds}</div><div className="text-[10px] text-amber-500">待跟进退款</div></div>
-                <div className="rounded-xl bg-red-50 p-2 shadow-sm"><div className="text-xl font-black text-red-600">{insights.counts.open_complaints}</div><div className="text-[10px] text-red-400">未结投诉</div></div>
+                <div className="rounded-xl bg-accent/10 p-2 shadow-card-inset"><div className="text-xl font-black tabular-nums text-accent">{insights.counts.active_orders}</div><div className="text-[10px] text-secondary">进行中订单</div></div>
+                <div className="rounded-xl bg-warning/10 p-2 shadow-card-inset"><div className="text-xl font-black tabular-nums text-warning">{insights.counts.open_refunds}</div><div className="text-[10px] text-secondary">待跟进退款</div></div>
+                <div className="rounded-xl bg-danger/10 p-2 shadow-card-inset"><div className="text-xl font-black tabular-nums text-danger">{insights.counts.open_complaints}</div><div className="text-[10px] text-secondary">未结投诉</div></div>
               </div>
               {visibleInsights.length > 0 && (
                 <div className="mt-2.5 grid gap-1">
                   {visibleInsights.slice(0, 2).map((insight) => (
-                    <button key={insight.insight_id} type="button" onClick={() => openInsight(insight)} className="flex items-center justify-between gap-2 rounded-xl bg-white px-2.5 py-2 text-left shadow-sm transition hover:bg-blue-50/70">
-                      <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-slate-700">{insight.title}</span>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${insight.severity === "urgent" ? "bg-red-100 text-red-700" : insight.severity === "high" ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-500"}`}>{insight.action_label}</span>
+                    <button key={insight.insight_id} type="button" onClick={() => openInsight(insight)} className="flex items-center justify-between gap-2 rounded-xl bg-elevated px-2.5 py-2 text-left shadow-card-inset transition hover:bg-accent/10">
+                      <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-secondary">{insight.title}</span>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${insight.severity === "urgent" ? "bg-danger/15 text-danger" : insight.severity === "high" ? "bg-warning/15 text-warning" : "bg-surface text-secondary"}`}>{insight.action_label}</span>
                     </button>
                   ))}
                 </div>
               )}
             </section>
           )}
-          <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
-            <div className="text-sm font-black text-slate-950">今天帮你处理什么？</div>
-            <p className="mt-1 text-[11px] text-slate-500">
+          <section className="rounded-2xl border border-accent/30 bg-surface p-4 shadow-card-inset">
+            <div className="text-sm font-black text-primary">今天帮你处理什么？</div>
+            <p className="mt-1 text-[11px] text-secondary">
               {selectedOrder
                 ? `已锁定订单 ${selectedOrder.order_id}，点查订单/物流/退款/投诉将直接针对它处理。`
                 : "点查订单、追物流、退款、投诉会先让你选订单，其余场景直接执行。"}
@@ -1363,13 +1363,14 @@ export default function FloatingAIAssistant() {
                   type="button"
                   key={sc.label}
                   onClick={() => handleScenarioClick(sc)}
-                  className="group flex items-start gap-2 rounded-xl px-2.5 py-2.5 text-left transition hover:-translate-y-0.5 hover:shadow-lg"
-                  style={scenarioCardStyle(sc.label)}
+                  className="group flex items-start gap-2 rounded-xl border border-line bg-elevated px-2.5 py-2.5 text-left transition hover:-translate-y-0.5 hover:border-accent/60 hover:shadow-accent-glow"
                 >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/20 text-sm">{sc.icon}</span>
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent transition group-hover:bg-accent/20">
+                    <sc.icon className="h-3.5 w-3.5" />
+                  </span>
                   <span className="min-w-0">
-                    <span className="block text-xs font-black text-white">{sc.label}</span>
-                    <span className="block text-[10px] leading-4 text-white/70">{sc.desc}</span>
+                    <span className="block text-xs font-black text-primary">{sc.label}</span>
+                    <span className="block text-[10px] leading-4 text-secondary">{sc.desc}</span>
                   </span>
                 </button>
               ))}
@@ -1378,10 +1379,10 @@ export default function FloatingAIAssistant() {
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-white px-3 py-2 text-[11px] text-slate-500 shadow-sm"><div className="flex items-center gap-1.5"><span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />{user ? `${ASSISTANT_NAME}正在结合你的服务上下文回复` : `${ASSISTANT_NAME}访客模式`}</div><button type="button" onClick={resetConversation} className="rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-bold text-white">重新开始</button></div>
-          {messages.map((message) => { const isUser = message.role === "user"; const msgTrace = message.metadata?.trace as AgentTraceData | undefined; return (<div key={message.id} className={`message-enter flex ${isUser ? "justify-end" : "justify-start"}`}><div className={`max-w-[85%] ${isUser ? "items-end" : "items-start"}`}><div className={`flex items-end gap-1.5 ${isUser ? "flex-row-reverse" : "flex-row"}`}>{!isUser && (<div className="relative h-7 w-7 shrink-0 overflow-hidden rounded-full bg-[#eef5ff] shadow-sm"><img src="/assistant/ai-assistant-avatar.png" alt="" className="assistant-avatar-3d absolute inset-0 h-full w-full object-cover object-center" /></div>)}<div className={`break-words rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed shadow-sm ${isUser ? "whitespace-pre-wrap rounded-br-sm bg-gradient-to-r from-[#2563eb] to-[#7c3aed] text-white" : "rounded-bl-sm border-t border-r border-b border-blue-50 border-l-4 bg-white text-slate-800"}`} style={!isUser && msgTrace ? { borderLeftColor: getFlowAccentColor(msgTrace.selected_flow) } : undefined}>{isUser ? message.content : <AiMessageContent content={message.content} streaming={streamingMsgId === message.id} />}</div></div>{!isUser && msgTrace && renderAgentChip(msgTrace)}{!isUser && msgTrace && <InlineDataCard trace={msgTrace} context={context} />}{!isUser && (() => { const pc = message.metadata?.pending_complaint as PendingComplaint | undefined; return pc ? <ComplaintConfirmCard complaint={pc} onConfirm={() => send("确认提交投诉")} onCancel={() => send("取消，不提交")} disabled={loading} /> : null; })()}{!isUser && (() => { const pr = message.metadata?.pending_refund as PendingRefund | undefined; return pr ? <RefundConfirmCard refund={pr} snapshot={snapshot} onConfirm={() => send("确认申请退款")} onCancel={() => send("取消，不申请")} disabled={loading} /> : null; })()}{!isUser && <MessageFeedback msgId={message.id} />}<div className={`mt-0.5 px-9 text-[10px] text-slate-400 ${isUser ? "text-right" : "text-left"}`}>{formatTime(message.timestamp)}</div></div></div>); })}
+          <div className="flex items-center justify-between rounded-xl border border-line bg-surface px-3 py-2 text-[11px] text-secondary shadow-card-inset"><div className="flex items-center gap-1.5"><span className="inline-flex h-1.5 w-1.5 rounded-full bg-success" />{user ? `${ASSISTANT_NAME}正在结合你的服务上下文回复` : `${ASSISTANT_NAME}访客模式`}</div><button type="button" onClick={resetConversation} className="rounded-full bg-accent/15 px-2.5 py-1 text-[10px] font-bold text-accent transition hover:bg-accent/25">重新开始</button></div>
+          {messages.map((message) => { const isUser = message.role === "user"; const msgTrace = message.metadata?.trace as AgentTraceData | undefined; return (<div key={message.id} className={`message-enter flex ${isUser ? "justify-end" : "justify-start"}`}><div className={`max-w-[85%] ${isUser ? "items-end" : "items-start"}`}><div className={`flex items-end gap-1.5 ${isUser ? "flex-row-reverse" : "flex-row"}`}>{!isUser && (<div className="relative h-7 w-7 shrink-0 overflow-hidden rounded-full bg-accent/15 shadow-sm"><img src="/assistant/ai-assistant-avatar.png" alt="" className="assistant-avatar-3d absolute inset-0 h-full w-full object-cover object-center" /></div>)}<div className={`break-words rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed shadow-sm ${isUser ? "whitespace-pre-wrap rounded-br-sm bg-accent text-white" : "rounded-bl-sm border-t border-r border-b border-line border-l-4 bg-surface text-primary"}`} style={!isUser && msgTrace ? { borderLeftColor: getFlowAccentColor(msgTrace.selected_flow) } : undefined}>{isUser ? message.content : <AiMessageContent content={message.content} streaming={streamingMsgId === message.id} />}</div></div>{!isUser && msgTrace && renderAgentChip(msgTrace)}{!isUser && msgTrace && <InlineDataCard trace={msgTrace} context={context} />}{!isUser && (() => { const pc = message.metadata?.pending_complaint as PendingComplaint | undefined; return pc ? <ComplaintConfirmCard complaint={pc} onConfirm={() => send("确认提交投诉")} onCancel={() => send("取消，不提交")} disabled={loading} /> : null; })()}{!isUser && (() => { const pr = message.metadata?.pending_refund as PendingRefund | undefined; return pr ? <RefundConfirmCard refund={pr} snapshot={snapshot} onConfirm={() => send("确认申请退款")} onCancel={() => send("取消，不申请")} disabled={loading} /> : null; })()}{!isUser && <MessageFeedback msgId={message.id} />}<div className={`mt-0.5 px-9 text-[10px] text-tertiary ${isUser ? "text-right" : "text-left"}`}>{formatTime(message.timestamp)}</div></div></div>); })}
           {loading && <SmartLoadingIndicator capability={loadingCapability} />}
-          {error && <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">{error}</div>}
+          {error && <div className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</div>}
         </div>
       )}
       <div ref={bottomRef} />
@@ -1393,49 +1394,52 @@ export default function FloatingAIAssistant() {
       {/* Hero section — 数字人自我介绍 */}
       <div className="relative mb-4 mt-2 flex flex-col items-center">
         <div className="relative h-28 w-28">
-          <span className="assistant-aura absolute inset-0 rounded-full bg-blue-300/40" />
-          <div className="relative h-28 w-28 overflow-hidden rounded-full ring-4 ring-white/70">
-            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-blue-100 via-purple-50 to-pink-100 opacity-80" />
+          <span className="assistant-aura absolute inset-0 rounded-full bg-accent/40" />
+          <div className="relative h-28 w-28 overflow-hidden rounded-full ring-4 ring-elevated">
+            <div className="absolute inset-0 rounded-full bg-elevated opacity-80" />
             <img src="/assistant/ai-assistant-avatar.png" alt={ASSISTANT_NAME} className="assistant-avatar-3d relative h-full w-full object-cover object-center" />
           </div>
-          <span className="absolute bottom-1.5 right-1.5 h-4 w-4 rounded-full border-2 border-white bg-emerald-500">
-            <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400 opacity-75" />
+          <span className="absolute bottom-1.5 right-1.5 h-4 w-4 rounded-full border-2 border-base bg-success">
+            <span className="absolute inset-0 animate-ping rounded-full bg-success opacity-75" />
           </span>
         </div>
         <div className="mt-3 flex items-center gap-1.5">
-          <h2 className="text-lg font-black text-slate-950">嗨，我是{ASSISTANT_NAME}</h2>
-          <span className="rounded-full bg-gradient-to-r from-blue-500 to-violet-500 px-2 py-0.5 text-[10px] font-bold text-white">AI</span>
+          <h2 className="text-lg font-black text-primary">嗨，我是{ASSISTANT_NAME}</h2>
+          <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold text-white">AI</span>
         </div>
-        <p className="mt-1 text-center text-xs text-slate-500">{ASSISTANT_TAGLINE}</p>
+        <p className="mt-1 text-center text-xs text-secondary">{ASSISTANT_TAGLINE}</p>
         <div className="mt-3 flex gap-2">
-          <Link href="/register" className="rounded-full border border-slate-200 px-4 py-1.5 text-xs font-bold text-slate-600 transition hover:border-blue-200 hover:text-blue-700">注册</Link>
-          <Link href="/login" className="rounded-full bg-slate-900 px-4 py-1.5 text-xs font-bold text-white shadow-sm">登录</Link>
+          <Link href="/register" className="rounded-full border border-line px-4 py-1.5 text-xs font-bold text-secondary transition hover:border-accent/60 hover:text-accent">注册</Link>
+          <Link href="/login" className="rounded-full bg-accent-gradient px-4 py-1.5 text-xs font-bold text-white shadow-accent-glow">登录</Link>
         </div>
       </div>
 
       {/* Demo hint banner：让第一次用/演示的人立刻知道怎么进入完整能力 */}
-      <div className="mb-4 w-full rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 via-white to-indigo-50 p-3.5">
+      <div className="mb-4 w-full rounded-2xl border border-accent/30 bg-elevated p-3.5 shadow-card-inset">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="text-xs font-black text-slate-900">🚀 想看完整能力？用演示账号登录</div>
-            <p className="mt-1 text-[11px] leading-4 text-slate-500">登录后可查真实订单、物流、退款、投诉，并让我直接替你执行。</p>
-            <p className="mt-1.5 text-[10px] text-slate-400">演示账号见项目 README</p>
+            <div className="flex items-center gap-1.5 text-xs font-black text-primary">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
+              想看完整能力？用演示账号登录
+            </div>
+            <p className="mt-1 text-[11px] leading-4 text-secondary">登录后可查真实订单、物流、退款、投诉，并让我直接替你执行。</p>
+            <p className="mt-1.5 text-[10px] text-tertiary">演示账号见项目 README</p>
           </div>
-          <span className="text-2xl">🔑</span>
+          <KeyRound className="h-6 w-6 shrink-0 text-accent" />
         </div>
       </div>
 
       {/* Recommendations */}
       <div className="w-full">
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-[11px] font-bold text-slate-500">为你推荐：</span>
-          <button type="button" onClick={() => setSuggestionPage((p) => p + 1)} className="flex items-center gap-1 text-[11px] font-bold text-slate-400 transition hover:text-blue-600">换一换 <span className="text-sm">↻</span></button>
+          <span className="text-[11px] font-bold text-secondary">为你推荐：</span>
+          <button type="button" onClick={() => setSuggestionPage((p) => p + 1)} className="flex items-center gap-1 text-[11px] font-bold text-tertiary transition hover:text-accent">换一换<RefreshCcw className="h-3 w-3" /></button>
         </div>
         <div className="grid gap-1.5">
           {suggestions.map((item) => (
-            <button key={item} type="button" onClick={() => send(item)} className="flex items-center gap-2 rounded-xl border border-slate-100 bg-white px-3 py-2.5 text-left transition hover:border-blue-200 hover:bg-blue-50/60">
-              <span className="text-sm text-blue-500">✦</span>
-              <span className="text-xs font-bold text-slate-700">{item}</span>
+            <button key={item} type="button" onClick={() => send(item)} className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2.5 text-left transition hover:border-accent/60 hover:bg-accent/10">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
+              <span className="text-xs font-bold text-secondary">{item}</span>
             </button>
           ))}
         </div>
@@ -1446,27 +1450,27 @@ export default function FloatingAIAssistant() {
   const renderTracePage = () => (
     <div className="space-y-3">
       {/* ── 执行时间轴（主体） ── */}
-      <section className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
-        <div className="border-b border-blue-50 px-4 py-3">
-          <div className="text-sm font-black text-slate-950">Agent 执行链</div>
-          <p className="mt-0.5 text-[11px] text-slate-500">意图识别 → Flow 路由 → 工具调用 → 耗时</p>
+      <section className="overflow-hidden rounded-2xl border border-accent/30 bg-surface shadow-card-inset">
+        <div className="border-b border-line px-4 py-3">
+          <div className="text-sm font-black text-primary">Agent 执行链</div>
+          <p className="mt-0.5 text-[11px] text-secondary">意图识别 → Flow 路由 → 工具调用 → 耗时</p>
         </div>
         <div className="p-3">
           <AgentTimeline trace={trace} />
         </div>
       </section>
       {/* ── DebugPanel 作为折叠详情 ── */}
-      <details className="group overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <summary className="flex cursor-pointer select-none items-center justify-between px-4 py-3 text-xs font-black text-slate-700 hover:bg-slate-50">
+      <details className="group overflow-hidden rounded-2xl border border-line bg-surface shadow-card-inset">
+        <summary className="flex cursor-pointer select-none items-center justify-between px-4 py-3 text-xs font-black text-secondary hover:bg-elevated">
           <span>详细调试数据</span>
-          <span className="text-slate-400 transition group-open:rotate-180">▾</span>
+          <span className="text-tertiary transition group-open:rotate-180">▾</span>
         </summary>
-        <div className="border-t border-slate-50 px-3 pb-3 pt-2">
+        <div className="border-t border-line px-3 pb-3 pt-2">
           <DebugPanel trace={trace} alwaysVisible />
         </div>
       </details>
-      <section className="rounded-2xl border border-slate-100 bg-white p-3 shadow-sm"><div className="mb-2 text-xs font-black text-slate-950">最近工具审计</div>{traceStore.audits.slice(0, 3).map((audit, index) => (<pre key={index} className="mb-1.5 max-h-24 overflow-hidden rounded-xl bg-slate-50 p-2 text-[10px] text-slate-600">{JSON.stringify(audit, null, 2).slice(0, 200)}</pre>))}{traceStore.audits.length === 0 && <div className="rounded-xl bg-slate-50 p-3 text-[11px] text-slate-400">暂无记录</div>}</section>
-      <section className="rounded-2xl border border-slate-100 bg-white p-3 shadow-sm"><div className="mb-2 text-xs font-black text-slate-950">工作流运行</div>{traceStore.workflows.slice(0, 3).map((workflow, index) => (<pre key={index} className="mb-1.5 max-h-24 overflow-hidden rounded-xl bg-slate-50 p-2 text-[10px] text-slate-600">{JSON.stringify(workflow, null, 2).slice(0, 200)}</pre>))}{traceStore.workflows.length === 0 && <div className="rounded-xl bg-slate-50 p-3 text-[11px] text-slate-400">暂无记录</div>}</section>
+      <section className="rounded-2xl border border-line bg-surface p-3 shadow-card-inset"><div className="mb-2 text-xs font-black text-primary">最近工具审计</div>{traceStore.audits.slice(0, 3).map((audit, index) => (<pre key={index} className="mb-1.5 max-h-24 overflow-hidden rounded-xl bg-elevated p-2 text-[10px] text-secondary">{JSON.stringify(audit, null, 2).slice(0, 200)}</pre>))}{traceStore.audits.length === 0 && <div className="rounded-xl bg-elevated p-3 text-[11px] text-tertiary">暂无记录</div>}</section>
+      <section className="rounded-2xl border border-line bg-surface p-3 shadow-card-inset"><div className="mb-2 text-xs font-black text-primary">工作流运行</div>{traceStore.workflows.slice(0, 3).map((workflow, index) => (<pre key={index} className="mb-1.5 max-h-24 overflow-hidden rounded-xl bg-elevated p-2 text-[10px] text-secondary">{JSON.stringify(workflow, null, 2).slice(0, 200)}</pre>))}{traceStore.workflows.length === 0 && <div className="rounded-xl bg-elevated p-3 text-[11px] text-tertiary">暂无记录</div>}</section>
     </div>
   );
 
@@ -1475,19 +1479,19 @@ export default function FloatingAIAssistant() {
       {!open && (
         <div className="fixed right-3 top-1/2 z-50 flex -translate-y-1/2 flex-col items-end gap-2 sm:right-5">
           {visibleEvents.length > 0 && (
-            <button type="button" onClick={() => openEvent(visibleEvents[0])} className="mr-2 max-w-[220px] rounded-2xl border border-orange-100 bg-white px-4 py-3 text-left shadow-[0_18px_48px_rgba(249,115,22,0.18)] transition hover:-translate-x-1"><div className="text-xs font-black text-orange-600">新提醒</div><div className="mt-1 line-clamp-2 text-sm font-bold leading-5 text-slate-900">{visibleEvents[0].title}</div><div className="mt-1 line-clamp-2 text-xs leading-4 text-slate-500">{visibleEvents[0].description}</div></button>
+            <button type="button" onClick={() => openEvent(visibleEvents[0])} className="mr-2 max-w-[220px] rounded-2xl border border-warning/30 bg-elevated px-4 py-3 text-left shadow-[0_18px_48px_rgba(0,0,0,0.45)] backdrop-blur transition hover:-translate-x-1"><div className="text-xs font-black text-warning">新提醒</div><div className="mt-1 line-clamp-2 text-sm font-bold leading-5 text-primary">{visibleEvents[0].title}</div><div className="mt-1 line-clamp-2 text-xs leading-4 text-secondary">{visibleEvents[0].description}</div></button>
           )}
-          <button type="button" onClick={() => setOpen(true)} className="assistant-side-float group relative h-[188px] w-[132px] overflow-visible rounded-l-[36px] rounded-r-2xl border border-blue-100 bg-white/95 shadow-[0_18px_48px_rgba(37,99,235,0.24)] backdrop-blur transition hover:-translate-x-1 hover:shadow-[0_24px_58px_rgba(37,99,235,0.32)]" aria-label="AI assistant"><span className="assistant-aura absolute left-1/2 top-6 h-28 w-28 -translate-x-1/2 rounded-full bg-blue-200/50" />{visibleEvents.length > 0 && <span className="badge-pop absolute right-2 top-2 grid min-w-[20px] place-items-center rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-md">{visibleEvents.length}</span>}<span className="absolute -left-[112px] top-10 hidden rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition group-hover:-translate-x-1 md:block">{ASSISTANT_NAME}，有事找我</span><img src="/assistant/ai-assistant-avatar.png" alt={ASSISTANT_NAME} className="assistant-avatar-float absolute -top-12 left-1/2 h-44 w-44 -translate-x-1/2 object-contain" /><span className="absolute bottom-9 left-1/2 w-[88px] -translate-x-1/2 rounded-full bg-[#2563eb] px-2 py-1 text-[13px] font-black text-white shadow-sm">{ASSISTANT_NAME}</span><span className="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1 text-[11px] font-semibold text-emerald-600"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />在线</span></button>
+          <button type="button" onClick={() => setOpen(true)} className="assistant-side-float group relative h-[188px] w-[132px] overflow-visible rounded-l-[36px] rounded-r-2xl border border-accent/30 bg-elevated/95 shadow-[0_18px_48px_rgba(0,0,0,0.5)] backdrop-blur transition hover:-translate-x-1 hover:shadow-accent-glow" aria-label="AI assistant"><span className="assistant-aura absolute left-1/2 top-6 h-28 w-28 -translate-x-1/2 rounded-full bg-accent/30" />{visibleEvents.length > 0 && <span className="badge-pop absolute right-2 top-2 grid min-w-[20px] place-items-center rounded-full bg-danger px-1.5 py-0.5 text-[10px] font-bold text-white shadow-md">{visibleEvents.length}</span>}<span className="absolute -left-[112px] top-10 hidden rounded-full border border-line bg-elevated px-3 py-1.5 text-xs font-semibold text-secondary shadow-card-inset transition group-hover:-translate-x-1 md:block">{ASSISTANT_NAME}，有事找我</span><img src="/assistant/ai-assistant-avatar.png" alt={ASSISTANT_NAME} className="assistant-avatar-float absolute -top-12 left-1/2 h-44 w-44 -translate-x-1/2 object-contain" /><span className="absolute bottom-9 left-1/2 w-[88px] -translate-x-1/2 rounded-full bg-accent px-2 py-1 text-[13px] font-black text-white shadow-sm">{ASSISTANT_NAME}</span><span className="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1 text-[11px] font-semibold text-success"><span className="h-1.5 w-1.5 rounded-full bg-success" />在线</span></button>
         </div>
       )}
 
       {open && (
-        <section className={`fixed z-50 flex overflow-hidden border border-blue-100 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.28)] transition-all duration-300 ${expanded ? "bottom-3 right-3 left-3 top-3 rounded-[20px] sm:bottom-4 sm:right-4 sm:left-4 sm:top-4" : "bottom-5 right-5 top-[60px] w-[25vw] min-w-[380px] max-w-[560px] max-h-[calc(100vh-80px)] rounded-2xl max-sm:left-3 max-sm:right-3 max-sm:top-3 max-sm:bottom-3 max-sm:w-auto max-sm:min-w-0 max-sm:max-w-none max-sm:max-h-none assistant-panel-mobile"}`}>
+        <section className={`fixed z-50 flex overflow-hidden border border-line bg-base shadow-[0_28px_90px_rgba(0,0,0,0.6)] transition-all duration-300 ${expanded ? "bottom-3 right-3 left-3 top-3 rounded-[20px] sm:bottom-4 sm:right-4 sm:left-4 sm:top-4" : "bottom-5 right-5 top-[60px] w-[25vw] min-w-[380px] max-w-[560px] max-h-[calc(100vh-80px)] rounded-2xl max-sm:left-3 max-sm:right-3 max-sm:top-3 max-sm:bottom-3 max-sm:w-auto max-sm:min-w-0 max-sm:max-w-none max-sm:max-h-none assistant-panel-mobile"}`}>
           {/* Sidebar - only in expanded + logged in */}
-          {user && <aside className={`hidden shrink-0 flex-col border-r border-blue-50 bg-[#f7fbff] p-5 ${expanded ? "w-64 lg:flex" : "hidden"}`}>
-            <div className="flex items-center gap-3"><div className="relative h-16 w-16 shrink-0"><span className="assistant-aura absolute inset-0 rounded-2xl bg-blue-300/40" /><div className="relative h-16 w-16 overflow-hidden rounded-2xl bg-white shadow-sm ring-2 ring-white"><img src="/assistant/ai-assistant-avatar.png" alt={ASSISTANT_NAME} className="assistant-avatar-3d absolute inset-0 h-full w-full object-cover object-center" /></div><span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500"><span className="absolute inset-0 animate-ping rounded-full bg-emerald-400 opacity-75" /></span></div><div><div className="flex items-center gap-1.5"><div className="text-base font-black text-slate-950">{ASSISTANT_NAME}</div><span className="rounded-full bg-gradient-to-r from-blue-500 to-violet-500 px-1.5 py-0.5 text-[9px] font-bold text-white">AI</span></div><div className="mt-1 text-xs font-semibold text-emerald-600">● 在线服务中</div><div className="mt-0.5 text-[10px] text-slate-400">{ASSISTANT_TITLE}</div></div></div>
-            <nav className="mt-8 grid gap-2">{(["chat", "trace"] as AssistantView[]).map((view) => (<button key={view} type="button" onClick={() => setAssistantView(view)} className={`rounded-2xl px-4 py-3 text-left text-sm font-black transition ${assistantView === view ? "bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow-lg" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{view === "chat" ? "AI 对话" : "Agent 面板"}</button>))}</nav>
-            <div className="mt-auto rounded-2xl bg-white p-4 text-xs leading-5 text-slate-500 shadow-sm">AI 回复仅供参考，订单和售后以平台记录为准。</div>
+          {user && <aside className={`hidden shrink-0 flex-col border-r border-line bg-surface p-5 ${expanded ? "w-64 lg:flex" : "hidden"}`}>
+            <div className="flex items-center gap-3"><div className="relative h-16 w-16 shrink-0"><span className="assistant-aura absolute inset-0 rounded-2xl bg-accent/40" /><div className="relative h-16 w-16 overflow-hidden rounded-2xl bg-elevated shadow-card-inset ring-2 ring-line"><img src="/assistant/ai-assistant-avatar.png" alt={ASSISTANT_NAME} className="assistant-avatar-3d absolute inset-0 h-full w-full object-cover object-center" /></div><span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-surface bg-success"><span className="absolute inset-0 animate-ping rounded-full bg-success opacity-75" /></span></div><div><div className="flex items-center gap-1.5"><div className="text-base font-black text-primary">{ASSISTANT_NAME}</div><span className="rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-bold text-white">AI</span></div><div className="mt-1 text-xs font-semibold text-success">● 在线服务中</div><div className="mt-0.5 text-[10px] text-tertiary">{ASSISTANT_TITLE}</div></div></div>
+            <nav className="mt-8 grid gap-2">{(["chat", "trace"] as AssistantView[]).map((view) => (<button key={view} type="button" onClick={() => setAssistantView(view)} className={`rounded-2xl px-4 py-3 text-left text-sm font-black transition ${assistantView === view ? "bg-accent-gradient text-white shadow-accent-glow" : "text-secondary hover:bg-elevated hover:text-primary"}`}>{view === "chat" ? "AI 对话" : "Agent 面板"}</button>))}</nav>
+            <div className="mt-auto rounded-2xl bg-elevated p-4 text-xs leading-5 text-secondary shadow-card-inset">AI 回复仅供参考，订单和售后以平台记录为准。</div>
           </aside>}
 
           <div className="relative flex min-w-0 flex-1 flex-col">
@@ -1503,7 +1507,7 @@ export default function FloatingAIAssistant() {
             />
 
             {/* Tab bar - only when logged in */}
-            {user && <div className="flex gap-1.5 overflow-x-auto border-b border-blue-50 bg-white px-3 py-2">{(["chat", "trace"] as AssistantView[]).map((view) => (<button key={view} type="button" onClick={() => setAssistantView(view)} className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-bold transition ${assistantView === view ? "bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow-sm" : "bg-slate-50 text-slate-500 hover:bg-slate-100"}`}>{view === "chat" ? "对话" : "Agent 面板"}</button>))}</div>}
+            {user && <div className="flex gap-1.5 overflow-x-auto border-b border-line bg-surface px-3 py-2">{(["chat", "trace"] as AssistantView[]).map((view) => (<button key={view} type="button" onClick={() => setAssistantView(view)} className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-bold transition ${assistantView === view ? "bg-accent text-white shadow-card-inset" : "bg-elevated text-secondary hover:text-accent"}`}>{view === "chat" ? "对话" : "Agent 面板"}</button>))}</div>}
 
             {/* 订单选择面板：全宽滑出，绝对覆盖在聊天区上方 */}
             {showOrderPicker && snapshot.orders.length > 0 && (
@@ -1518,7 +1522,7 @@ export default function FloatingAIAssistant() {
             )}
 
             {/* Main content */}
-            <main className="chat-scrollbar flex-1 overflow-y-auto bg-gradient-to-b from-[#f7fbff] to-white p-3 sm:p-4">
+            <main className="chat-scrollbar flex-1 overflow-y-auto bg-base p-3 sm:p-4">
               {user ? (
                 <>{assistantView === "chat" && renderChatPage()}{assistantView === "trace" && renderTracePage()}</>
               ) : (
@@ -1527,7 +1531,7 @@ export default function FloatingAIAssistant() {
             </main>
 
             {/* Footer with input - always show for guest chat or logged-in chat view */}
-            {(user ? assistantView === "chat" : true) && <footer className="chat-footer border-t border-blue-50 bg-white p-3">{selectedOrder && (<div className="mb-2 flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2"><span className="text-sm">📦</span><span className="min-w-0 flex-1"><div className="font-mono text-[10px] font-bold text-blue-700">{selectedOrder.order_id}</div><div className="truncate text-[11px] font-semibold text-slate-700">{(selectedOrder.items || []).map((i) => `${i.product_name}${i.quantity > 1 ? ` ×${i.quantity}` : ""}`).join("、") || "暂无商品"}</div></span><button type="button" onClick={() => setSelectedOrder(null)} className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-red-50 hover:text-red-500" aria-label="取消关联">✕</button></div>)}<div className="flex items-end gap-2 rounded-xl border border-blue-100 bg-[#f8fbff] p-1.5 transition focus-within:border-blue-300 focus-within:shadow-[0_0_0_3px_rgba(37,99,235,0.08)]">{user && snapshot.orders.length > 0 && (<button type="button" onClick={() => setShowOrderPicker((v) => !v)} className={`inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-2 text-[11px] font-bold transition ${showOrderPicker ? "bg-blue-100 text-blue-700" : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"}`} aria-label="选择订单"><span>📋</span><span>选单</span></button>)}<textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(input); } }} rows={1} placeholder={user ? (selectedOrder ? `针对 ${selectedOrder.order_id.slice(-6)} 提问...` : "问订单、物流、退款都可以") : "请描述你遇到的问题"} className="max-h-24 min-h-[36px] flex-1 resize-none border-0 bg-transparent px-2 py-2 text-xs outline-none placeholder:text-slate-400" /><button type="button" onClick={() => send(input)} disabled={!input.trim() || loading} className="h-9 shrink-0 rounded-lg bg-gradient-to-r from-[#2563eb] to-[#7c3aed] px-3 text-xs font-bold text-white shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0" aria-label="发送">发送</button></div></footer>}
+            {(user ? assistantView === "chat" : true) && <footer className="chat-footer border-t border-line bg-surface p-3">{selectedOrder && (<div className="mb-2 flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2"><Package className="h-3.5 w-3.5 shrink-0 text-accent" /><span className="min-w-0 flex-1"><div className="font-mono text-[10px] font-bold text-accent">{selectedOrder.order_id}</div><div className="truncate text-[11px] font-semibold text-secondary">{(selectedOrder.items || []).map((i) => `${i.product_name}${i.quantity > 1 ? ` ×${i.quantity}` : ""}`).join("、") || "暂无商品"}</div></span><button type="button" onClick={() => setSelectedOrder(null)} className="shrink-0 rounded-full p-1 text-tertiary hover:bg-danger/10 hover:text-danger" aria-label="取消关联">✕</button></div>)}<div className="flex items-end gap-2 rounded-xl border border-line bg-elevated p-1.5 transition focus-within:border-accent/60 focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.15)]">{user && snapshot.orders.length > 0 && (<button type="button" onClick={() => setShowOrderPicker((v) => !v)} className={`inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-2 text-[11px] font-bold transition ${showOrderPicker ? "bg-accent/15 text-accent" : "text-tertiary hover:bg-surface hover:text-secondary"}`} aria-label="选择订单"><ClipboardList className="h-3.5 w-3.5" /><span>选单</span></button>)}<textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(input); } }} rows={1} placeholder={user ? (selectedOrder ? `针对 ${selectedOrder.order_id.slice(-6)} 提问...` : "问订单、物流、退款都可以") : "请描述你遇到的问题"} className="max-h-24 min-h-[36px] flex-1 resize-none border-0 bg-transparent px-2 py-2 text-xs outline-none placeholder:text-tertiary" /><button type="button" onClick={() => send(input)} disabled={!input.trim() || loading} className="h-9 shrink-0 rounded-lg bg-accent px-3 text-xs font-bold text-white shadow-accent-glow transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0" aria-label="发送">发送</button></div></footer>}
           </div>
         </section>
       )}

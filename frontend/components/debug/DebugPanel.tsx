@@ -21,31 +21,31 @@ export default function DebugPanel({ trace, alwaysVisible = false }: DebugPanelP
   const confidencePercent = Math.round((trace.confidence || 0) * 100);
 
   return (
-    <div className="border-t border-blue-100 bg-blue-50/40">
+    <div className="border-t border-line bg-elevated/60">
       <button
         onClick={() => setIsExpanded((value) => !value)}
-        className="flex w-full items-center justify-between px-4 py-2 text-xs text-slate-500 transition hover:bg-blue-50"
+        className="flex w-full items-center justify-between px-4 py-2 text-xs text-secondary transition hover:bg-elevated"
       >
         <span className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="font-bold text-slate-700">Agent Trace</span>
+          <span className="font-bold text-primary">Agent Trace</span>
           <span style={{ color: confidenceColor }}>
             {trace.intent || "未知意图"}（{confidencePercent}%）
           </span>
-          <span className="text-slate-300">-&gt;</span>
+          <span className="text-tertiary">-&gt;</span>
           <span>{trace.selected_flow || "未分配"}</span>
           {trace.selected_tool && (
             <>
-              <span className="text-slate-300">|</span>
-              <span className="text-[#2563eb]">{trace.selected_tool}</span>
+              <span className="text-tertiary">|</span>
+              <span className="text-accent">{trace.selected_tool}</span>
             </>
           )}
           {trace.current_state && (
             <>
-              <span className="text-slate-300">|</span>
-              <span className="text-purple-600">{trace.current_state}</span>
+              <span className="text-tertiary">|</span>
+              <span className="text-accent">{trace.current_state}</span>
             </>
           )}
-          <span className="text-slate-300">|</span>
+          <span className="text-tertiary">|</span>
           <span>{trace.duration_ms || 0}ms</span>
         </span>
         <span>{isExpanded ? "收起" : "展开"}</span>
@@ -54,13 +54,13 @@ export default function DebugPanel({ trace, alwaysVisible = false }: DebugPanelP
       {isExpanded && (
         <div className="grid gap-3 px-4 pb-4 text-xs md:grid-cols-4">
           <TraceCard title="意图" value={trace.intent || "未知"} detail={trace.intent_desc} />
-          <div className="rounded-xl border border-blue-100 bg-white p-3">
-            <div className="mb-1 text-slate-400">置信度</div>
+          <div className="rounded-xl border border-line bg-surface p-3">
+            <div className="mb-1 text-tertiary">置信度</div>
             <div className="flex items-center gap-2">
               <span className="font-bold" style={{ color: confidenceColor }}>
                 {confidencePercent}%
               </span>
-              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-base">
                 <div className="h-full" style={{ width: `${confidencePercent}%`, backgroundColor: confidenceColor }} />
               </div>
             </div>
@@ -77,18 +77,18 @@ export default function DebugPanel({ trace, alwaysVisible = false }: DebugPanelP
           )}
 
           {trace.tool_calls && trace.tool_calls.length > 0 && (
-            <div className="rounded-xl border border-blue-100 bg-white p-3 md:col-span-4">
-              <div className="mb-2 font-bold text-[#2563eb]">工具调用（{trace.tool_calls.length}）</div>
+            <div className="rounded-xl border border-line bg-surface p-3 md:col-span-4">
+              <div className="mb-2 font-bold text-accent">工具调用（{trace.tool_calls.length}）</div>
               <div className="space-y-2">
                 {trace.tool_calls.map((toolCall, index) => (
-                  <div key={`${toolCall.tool_name}-${index}`} className="rounded-xl border border-slate-100 bg-[#fafafa] p-2">
+                  <div key={`${toolCall.tool_name}-${index}`} className="rounded-xl border border-line bg-elevated p-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={toolCall.success ? "text-emerald-600" : "text-red-600"}>{toolCall.success ? "成功" : "失败"}</span>
-                      <span className="font-bold text-[#2563eb]">{toolCall.tool_name}</span>
-                      {toolCall.latency_ms !== undefined && <span className="text-slate-400">{Math.round(toolCall.latency_ms)}ms</span>}
+                      <span className={toolCall.success ? "text-success" : "text-danger"}>{toolCall.success ? "成功" : "失败"}</span>
+                      <span className="font-bold text-accent">{toolCall.tool_name}</span>
+                      {toolCall.latency_ms !== undefined && <span className="text-tertiary">{Math.round(toolCall.latency_ms)}ms</span>}
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-500">输入：{JSON.stringify(toolCall.tool_input)}</div>
-                    <div className="mt-1 text-[11px] text-slate-500">输出：{JSON.stringify(toolCall.tool_output).slice(0, 180)}</div>
+                    <div className="mt-1 text-[11px] text-secondary">输入：{JSON.stringify(toolCall.tool_input)}</div>
+                    <div className="mt-1 text-[11px] text-secondary">输出：{JSON.stringify(toolCall.tool_output).slice(0, 180)}</div>
                   </div>
                 ))}
               </div>
@@ -96,7 +96,7 @@ export default function DebugPanel({ trace, alwaysVisible = false }: DebugPanelP
           )}
 
           {trace.tool_error && (
-            <div className="rounded-xl border border-red-100 bg-red-50 p-3 text-red-700 md:col-span-4">
+            <div className="rounded-xl border border-danger/30 bg-danger/10 p-3 text-danger md:col-span-4">
               <div className="font-bold">工具错误</div>
               <div className="mt-1">{trace.tool_error}</div>
             </div>
@@ -109,22 +109,22 @@ export default function DebugPanel({ trace, alwaysVisible = false }: DebugPanelP
             const keyword = retrievalDebug.routes?.keyword;
             const revalidation = retrievalDebug.revalidation;
             return (
-              <div className="rounded-xl border border-cyan-100 bg-cyan-50/60 p-3 md:col-span-4">
-                <div className="mb-2 font-bold text-cyan-700">RAG 检索透明化</div>
+              <div className="rounded-xl border border-accent/30 bg-accent/10 p-3 md:col-span-4">
+                <div className="mb-2 font-bold text-accent">RAG 检索透明化</div>
                 <div className="grid gap-2 md:grid-cols-2">
-                  <div className="rounded-lg border border-cyan-100 bg-white p-2">
-                    <div className="mb-1 text-[11px] font-bold text-slate-600">多路检索分数</div>
-                    <div className="text-[11px] text-slate-600">
+                  <div className="rounded-lg border border-line bg-surface p-2">
+                    <div className="mb-1 text-[11px] font-bold text-secondary">多路检索分数</div>
+                    <div className="text-[11px] text-secondary">
                       <div>语义路（vector）：命中 {vector?.count ?? 0} 条，最高分 {vector?.top_score ?? "-"}</div>
                       <div>关键词路（keyword）：命中 {keyword?.count ?? 0} 条，最高分 {keyword?.top_score ?? "-"}</div>
-                      {retrievalDebug.fusion && <div className="text-slate-400">融合方式：{retrievalDebug.fusion}</div>}
+                      {retrievalDebug.fusion && <div className="text-tertiary">融合方式：{retrievalDebug.fusion}</div>}
                     </div>
                   </div>
                   {revalidation && (
-                    <div className="rounded-lg border border-cyan-100 bg-white p-2">
-                      <div className="mb-1 text-[11px] font-bold text-slate-600">二次补检</div>
+                    <div className="rounded-lg border border-line bg-surface p-2">
+                      <div className="mb-1 text-[11px] font-bold text-secondary">二次补检</div>
                       {revalidation.triggered ? (
-                        <div className="text-[11px] text-slate-600">
+                        <div className="text-[11px] text-secondary">
                           <div>
                             触发原因：
                             {revalidation.reason === "relevance"
@@ -137,7 +137,7 @@ export default function DebugPanel({ trace, alwaysVisible = false }: DebugPanelP
                           <div>补检后结果：{revalidation.retry_result_count ?? "-"} 条</div>
                         </div>
                       ) : (
-                        <div className="text-[11px] text-slate-400">本轮未触发补检</div>
+                        <div className="text-[11px] text-tertiary">本轮未触发补检</div>
                       )}
                     </div>
                   )}
@@ -147,9 +147,9 @@ export default function DebugPanel({ trace, alwaysVisible = false }: DebugPanelP
           })()}
 
           {trace.reasoning && (
-            <div className="rounded-xl border border-blue-100 bg-white p-3 md:col-span-4">
-              <div className="font-bold text-[#2563eb]">推理说明</div>
-              <div className="mt-1 whitespace-pre-line text-slate-700">{trace.reasoning}</div>
+            <div className="rounded-xl border border-line bg-surface p-3 md:col-span-4">
+              <div className="font-bold text-accent">推理说明</div>
+              <div className="mt-1 whitespace-pre-line text-secondary">{trace.reasoning}</div>
             </div>
           )}
 
@@ -172,19 +172,19 @@ function TraceCard({
   className?: string;
 }) {
   return (
-    <div className={`rounded-xl border border-blue-100 bg-white p-3 ${className}`}>
-      <div className="mb-1 text-slate-400">{title}</div>
-      <div className="break-words font-bold text-slate-800">{value}</div>
-      {detail && <div className="mt-1 text-[11px] text-slate-500">{detail}</div>}
+    <div className={`rounded-xl border border-line bg-surface p-3 ${className}`}>
+      <div className="mb-1 text-tertiary">{title}</div>
+      <div className="break-words font-bold text-primary">{value}</div>
+      {detail && <div className="mt-1 text-[11px] text-secondary">{detail}</div>}
     </div>
   );
 }
 
 function TraceJson({ title, value }: { title: string; value: Record<string, unknown> }) {
   return (
-    <div className="rounded-xl border border-blue-100 bg-white p-3 md:col-span-4">
-      <div className="mb-2 font-bold text-[#2563eb]">{title}</div>
-      <pre className="overflow-auto rounded-lg bg-[#fafafa] p-2 text-[11px] text-slate-600">{JSON.stringify(value, null, 2)}</pre>
+    <div className="rounded-xl border border-line bg-surface p-3 md:col-span-4">
+      <div className="mb-2 font-bold text-accent">{title}</div>
+      <pre className="overflow-auto rounded-lg bg-base p-2 text-[11px] text-secondary">{JSON.stringify(value, null, 2)}</pre>
     </div>
   );
 }

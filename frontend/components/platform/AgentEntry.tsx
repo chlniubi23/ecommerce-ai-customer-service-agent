@@ -1,5 +1,7 @@
 "use client";
 
+import { Sparkles } from "lucide-react";
+
 const OPEN_EVENT = "commerce:open-agent";
 
 export default function AgentEntry({
@@ -27,7 +29,7 @@ export default function AgentEntry({
 
   return (
     <button type="button" onClick={openAssistant} className="app-button">
-      <span className="mr-1.5">✦</span>
+      <Sparkles className="mr-1.5 h-4 w-4" />
       {label}
     </button>
   );
