@@ -29,7 +29,7 @@ export default function ProfilePage() {
         <div className="space-y-5">
           <section className="app-card overflow-hidden">
             <div className="relative overflow-hidden bg-elevated p-6">
-              <div className="pointer-events-none absolute -top-20 right-0 h-40 w-72 rounded-full bg-accent/12 blur-3xl" />
+              <div className="pointer-events-none absolute -top-20 right-0 h-40 w-72 rounded-full bg-accent/10 blur-3xl" />
               <div className="relative flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
                 <div className="flex items-center gap-4">
                   <div className="grid h-16 w-16 place-items-center rounded-full bg-accent-gradient text-2xl font-black text-white shadow-accent-glow">

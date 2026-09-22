@@ -222,7 +222,7 @@ export default function Home() {
               key={item.title}
               className={`group relative overflow-hidden rounded-xl border border-line bg-surface p-5 shadow-card-inset transition duration-300 hover:-translate-y-1 hover:border-accent/60 ${item.span}`}
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/12 text-accent transition group-hover:bg-accent/20">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10 text-accent transition group-hover:bg-accent/20">
                 <item.icon className="h-5 w-5" />
               </div>
               <div className="mt-4 text-base font-black text-primary">{item.title}</div>

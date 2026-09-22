@@ -30,7 +30,7 @@ export default function ProductsPage() {
   return (
     <SiteShell>
       <section className="relative overflow-hidden rounded-2xl border border-line bg-surface p-5">
-        <div className="pointer-events-none absolute -top-24 right-0 h-56 w-96 rounded-full bg-accent/12 blur-3xl" />
+        <div className="pointer-events-none absolute -top-24 right-0 h-56 w-96 rounded-full bg-accent/10 blur-3xl" />
         <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="text-sm font-bold text-accent">小易 AI 助手 Mall</div>
