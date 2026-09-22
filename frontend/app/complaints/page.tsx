@@ -54,14 +54,14 @@ export default function ComplaintsPage() {
     <SiteShell>
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-2xl font-black">投诉中心</h1>
-          <p className="mt-1 text-sm text-slate-500">投诉、处理记录和 Supervisor 升级信息全部来自数据库。</p>
+          <h1 className="text-2xl font-black text-primary">投诉中心</h1>
+          <p className="mt-1 text-sm text-secondary">投诉、处理记录和 Supervisor 升级信息全部来自数据库。</p>
         </div>
         <AgentEntry userId={userId || undefined} label="咨询投诉Agent" />
       </div>
       <div className="mt-5 grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
         <div className="app-card p-5">
-          <h2 className="font-black">提交投诉</h2>
+          <h2 className="font-black text-primary">提交投诉</h2>
           <div className="mt-4 space-y-3">
             <select className="app-input w-full" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
               <option value="">不关联订单</option>
@@ -77,7 +77,7 @@ export default function ComplaintsPage() {
             </select>
             <textarea className="app-input min-h-28 w-full" value={content} onChange={(e) => setContent(e.target.value)} placeholder="请描述你遇到的问题" />
             <button onClick={submit} className="app-button">提交投诉</button>
-            {message && <div className={`rounded-xl border p-3 text-sm ${message.includes("失败") ? "border-red-100 bg-red-50 text-red-600" : "border-emerald-100 bg-emerald-50 text-emerald-700"}`}>{message}</div>}
+            {message && <div className={`rounded-xl border p-3 text-sm ${message.includes("失败") ? "border-danger/30 bg-danger/10 text-danger" : "border-success/30 bg-success/10 text-success"}`}>{message}</div>}
           </div>
         </div>
         <div className="space-y-3">
@@ -85,18 +85,18 @@ export default function ComplaintsPage() {
             <div key={complaint.complaint_id} className="app-panel p-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <div className="font-black">{complaint.complaint_id}</div>
-                  {complaint.order_id && <Link href={`/orders/${complaint.order_id}`} className="text-sm font-semibold text-[#ff2442]">{complaint.order_id}</Link>}
+                  <div className="font-black text-primary">{complaint.complaint_id}</div>
+                  {complaint.order_id && <Link href={`/orders/${complaint.order_id}`} className="ai-link text-sm font-semibold">{complaint.order_id}</Link>}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <StatusBadge value={complaint.complaint_status} />
                   <StatusBadge value={complaint.priority} />
                 </div>
               </div>
-              <div className="mt-3 text-sm leading-6 text-slate-600">{complaint.content}</div>
-              <div className="mt-2 text-xs text-slate-400">{formatDate(complaint.created_at)}</div>
+              <div className="mt-3 text-sm leading-6 text-secondary">{complaint.content}</div>
+              <div className="mt-2 text-xs text-tertiary">{formatDate(complaint.created_at)}</div>
               {(complaint.escalations || []).length > 0 && (
-                <div className="mt-3 rounded-2xl border border-pink-100 bg-pink-50 p-3 text-sm text-[#ff2442]">
+                <div className="mt-3 rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
                   已升级至 Supervisor：{complaint.escalations?.[0]?.escalation_status}
                 </div>
               )}

@@ -29,18 +29,19 @@ export default function ProductsPage() {
 
   return (
     <SiteShell>
-      <section className="rounded-[28px] bg-gradient-to-r from-[#ff2442] via-[#ff4d67] to-[#ff7a18] p-5 text-white shadow-[0_18px_55px_rgba(255,36,66,0.22)]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <section className="relative overflow-hidden rounded-2xl border border-line bg-surface p-5">
+        <div className="pointer-events-none absolute -top-24 right-0 h-56 w-96 rounded-full bg-accent/12 blur-3xl" />
+        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="text-sm font-bold text-white/75">小易电商助手 Mall</div>
-            <h1 className="mt-1 text-3xl font-black">商城频道</h1>
-            <p className="mt-2 text-sm text-white/78">真实类目、品牌、价格、库存与商品图，均由业务数据库实时驱动。</p>
+            <div className="text-sm font-bold text-accent">小易 AI 助手 Mall</div>
+            <h1 className="mt-1 text-3xl font-black tracking-tight text-primary">商城频道</h1>
+            <p className="mt-2 text-sm text-secondary">真实类目、品牌、价格、库存与商品图，均由业务数据库实时驱动。</p>
           </div>
           <AgentEntry userId={userId || undefined} label="AI帮我挑" />
         </div>
-        <div className="mt-5 flex items-center rounded-full bg-white p-1.5">
+        <div className="relative mt-5 flex items-center rounded-full border border-line bg-elevated p-1.5">
           <input
-            className="min-w-0 flex-1 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 outline-none placeholder:text-slate-400"
+            className="min-w-0 flex-1 rounded-full bg-transparent px-4 py-2 text-sm font-semibold text-primary outline-none placeholder:text-tertiary"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             onKeyDown={(e) => {
@@ -48,20 +49,20 @@ export default function ProductsPage() {
             }}
             placeholder="搜商品、品牌、SKU 或分类"
           />
-          <button onClick={() => load()} className="rounded-full bg-slate-950 px-6 py-2 text-sm font-black text-white">
+          <button onClick={() => load()} className="rounded-full bg-accent-gradient px-6 py-2 text-sm font-bold text-white transition hover:shadow-accent-glow">
             搜索
           </button>
         </div>
       </section>
 
-      <section className="mt-4 rounded-[24px] bg-white p-4 shadow-[0_14px_40px_rgba(15,23,42,0.06)]">
+      <section className="mt-4 rounded-xl border border-line bg-surface p-4 shadow-card-inset">
         <div className="flex gap-2 overflow-x-auto pb-1">
           <button
             onClick={() => {
               setCategoryId("");
               load("");
             }}
-            className={`shrink-0 rounded-full px-4 py-2 text-sm font-black ${!categoryId ? "bg-[#ff2442] text-white" : "bg-[#f5f5f6] text-slate-600"}`}
+            className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold transition ${!categoryId ? "bg-accent-gradient text-white" : "bg-elevated text-secondary hover:text-primary"}`}
           >
             全部
           </button>
@@ -72,7 +73,7 @@ export default function ProductsPage() {
                 setCategoryId(category.category_id);
                 load(category.category_id);
               }}
-              className={`shrink-0 rounded-full px-4 py-2 text-sm font-black ${categoryId === category.category_id ? "bg-[#ff2442] text-white" : "bg-[#f5f5f6] text-slate-600"}`}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold transition ${categoryId === category.category_id ? "bg-accent-gradient text-white" : "bg-elevated text-secondary hover:text-primary"}`}
             >
               {category.category_name}
             </button>
@@ -82,8 +83,8 @@ export default function ProductsPage() {
 
       <section className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {products.map((product) => (
-          <div key={product.product_id} className="overflow-hidden rounded-[18px] bg-white shadow-[0_10px_30px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5">
-            <Link href={`/products/${product.product_id}`} className="relative block aspect-[3/4] bg-gradient-to-b from-slate-50 to-slate-100">
+          <div key={product.product_id} className="overflow-hidden rounded-xl border border-line bg-surface shadow-card-inset transition hover:-translate-y-0.5 hover:border-accent/60">
+            <Link href={`/products/${product.product_id}`} className="relative block aspect-[3/4] bg-elevated">
               <Image
                 src={productImage(product.images?.[0]?.image_url)}
                 alt={product.product_name}
@@ -92,24 +93,24 @@ export default function ProductsPage() {
                 sizes="25vw"
                 unoptimized
               />
-              <span className="absolute left-2 top-2 rounded-full bg-[#ff2442] px-2 py-1 text-[11px] font-black text-white">热卖</span>
+              <span className="absolute left-2 top-2 rounded-full bg-accent px-2 py-1 text-[11px] font-black text-white">热卖</span>
             </Link>
             <div className="p-3">
-              <div className="text-xs font-bold text-[#ff2442]">{product.brand_name} · {product.category_name}</div>
-              <Link href={`/products/${product.product_id}`} className="mt-2 block line-clamp-2 min-h-10 text-sm font-black leading-5 text-slate-950">
+              <div className="text-xs font-bold text-accent">{product.brand_name} · {product.category_name}</div>
+              <Link href={`/products/${product.product_id}`} className="mt-2 block line-clamp-2 min-h-10 text-sm font-black leading-5 text-primary">
                 {product.product_name}
               </Link>
-              <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{product.description}</p>
+              <p className="mt-1 line-clamp-2 text-xs leading-5 text-secondary">{product.description}</p>
               <div className="mt-3 flex items-end justify-between">
-                <div className="text-xl font-black text-[#ff2442]">{formatCurrency(product.price)}</div>
-                <div className="text-xs text-slate-400">可售 {product.available_quantity ?? 0}</div>
+                <div className="ai-price text-xl">{formatCurrency(product.price)}</div>
+                <div className="text-xs text-tertiary">可售 {product.available_quantity ?? 0}</div>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <StatusBadge value={product.product_status} />
                 <StatusBadge value={product.inventory_status} />
               </div>
               <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
-                <Link href={`/products/${product.product_id}`} className="inline-flex items-center justify-center rounded-full bg-[#f5f5f6] px-4 py-2 text-sm font-black text-slate-700">
+                <Link href={`/products/${product.product_id}`} className="inline-flex items-center justify-center rounded-full border border-line bg-elevated px-4 py-2 text-sm font-bold text-primary transition hover:border-accent/60 hover:text-accent">
                   详情
                 </Link>
                 <AgentEntry userId={userId || undefined} productId={product.product_id} label="问AI" />

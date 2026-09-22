@@ -19,16 +19,16 @@ interface FileListProps {
 /** 文件类型图标 */
 function FileIcon({ type }: { type: string }) {
   const colors: Record<string, string> = {
-    pdf: "bg-red-100 text-red-600",
-    txt: "bg-blue-100 text-blue-600",
-    md: "bg-purple-100 text-purple-600",
+    pdf: "bg-danger/15 text-danger",
+    txt: "bg-accent/15 text-accent",
+    md: "bg-accent/15 text-accent",
   };
   const labels: Record<string, string> = {
     pdf: "PDF",
     txt: "TXT",
     md: "MD",
   };
-  const cls = colors[type] || "bg-gray-100 text-gray-600";
+  const cls = colors[type] || "bg-elevated text-secondary";
 
   return (
     <div
@@ -42,19 +42,16 @@ function FileIcon({ type }: { type: string }) {
 /** 状态 Badge */
 function StatusBadge({ status }: { status: string }) {
   const config: Record<string, { bg: string; text: string; label: string }> = {
-    uploading: { bg: "bg-blue-100", text: "text-blue-700", label: "上传中" },
-    parsing: { bg: "bg-yellow-100", text: "text-yellow-700", label: "解析中" },
+    uploading: { bg: "bg-accent/15", text: "text-accent", label: "上传中" },
+    parsing: { bg: "bg-warning/15", text: "text-warning", label: "解析中" },
     chunking: {
-      bg: "bg-blue-100",
-      text: "text-blue-700",
-      label: "切片中",
+      bg: "bg-accent/15", text: "text-accent", label: "切片中",
     },
     completed: {
-      bg: "bg-emerald-100",
-      text: "text-emerald-700",
+      bg: "bg-success/15", text: "text-success",
       label: "已完成",
     },
-    failed: { bg: "bg-red-100", text: "text-red-700", label: "失败" },
+    failed: { bg: "bg-danger/15", text: "text-danger", label: "失败" },
   };
   const c = config[status] || {
     bg: "bg-gray-100",
@@ -107,9 +104,9 @@ export default function FileList({ records }: FileListProps) {
   if (records.length === 0) {
     return (
       <div className="text-center py-12">
-        <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
+        <div className="w-16 h-16 rounded-full bg-elevated flex items-center justify-center mx-auto mb-4">
           <svg
-            className="w-8 h-8 text-gray-300"
+            className="w-8 h-8 text-tertiary"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -122,8 +119,8 @@ export default function FileList({ records }: FileListProps) {
             />
           </svg>
         </div>
-        <p className="text-sm text-gray-400">暂无上传文件</p>
-        <p className="text-xs text-gray-300 mt-1">
+        <p className="text-sm text-tertiary">暂无上传文件</p>
+        <p className="text-xs text-tertiary mt-1">
           上传文档后将在此显示处理结果
         </p>
       </div>
@@ -138,7 +135,7 @@ export default function FileList({ records }: FileListProps) {
         return (
           <div
             key={record.id}
-            className="bg-white rounded-xl border border-gray-200 overflow-hidden transition-all duration-200 hover:shadow-sm"
+            className="bg-surface rounded-xl border border-line overflow-hidden transition-all duration-200 hover:shadow-sm"
           >
             {/* 文件行 */}
             <div
@@ -151,29 +148,29 @@ export default function FileList({ records }: FileListProps) {
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-gray-800 truncate">
+                  <p className="text-sm font-medium text-primary truncate">
                     {record.fileName}
                   </p>
                   <StatusBadge status={record.status} />
                 </div>
                 <div className="flex items-center gap-3 mt-0.5">
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-tertiary">
                     {formatSize(record.fileSize)}
                   </span>
                   {record.status === "completed" && (
                     <>
-                      <span className="text-xs text-gray-300">|</span>
-                      <span className="text-xs text-emerald-600 font-medium">
+                      <span className="text-xs text-tertiary">|</span>
+                      <span className="text-xs text-success font-medium">
                         {record.chunksCount} chunks
                       </span>
-                      <span className="text-xs text-gray-300">|</span>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-tertiary">|</span>
+                      <span className="text-xs text-tertiary">
                         {record.durationMs.toFixed(0)}ms
                       </span>
                     </>
                   )}
-                  <span className="text-xs text-gray-300">|</span>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-tertiary">|</span>
+                  <span className="text-xs text-tertiary">
                     {formatTime(record.uploadedAt)}
                   </span>
                 </div>
@@ -182,7 +179,7 @@ export default function FileList({ records }: FileListProps) {
               {/* 展开箭头 */}
               {record.status === "completed" && record.chunks && (
                 <svg
-                  className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${
+                  className={`w-4 h-4 text-tertiary transition-transform duration-200 ${
                     isExpanded ? "rotate-180" : ""
                   }`}
                   fill="none"
@@ -202,7 +199,7 @@ export default function FileList({ records }: FileListProps) {
             {/* 错误信息 */}
             {record.status === "failed" && record.error && (
               <div className="px-4 pb-3">
-                <div className="px-3 py-2 bg-red-50 rounded-lg text-xs text-red-600">
+                <div className="px-3 py-2 bg-danger/10 rounded-lg text-xs text-danger">
                   {record.error}
                 </div>
               </div>
@@ -210,30 +207,30 @@ export default function FileList({ records }: FileListProps) {
 
             {/* Chunk 详情 */}
             {isExpanded && record.chunks && record.chunks.length > 0 && (
-              <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50">
-                <p className="text-xs font-medium text-gray-500 mb-2">
+              <div className="border-t border-line px-4 py-3 bg-elevated/50">
+                <p className="text-xs font-medium text-secondary mb-2">
                   Chunks ({record.chunks.length})
                 </p>
                 <div className="space-y-2 max-h-64 overflow-y-auto chat-scrollbar">
                   {record.chunks.map((chunk, idx) => (
                     <div
                       key={chunk.chunk_id}
-                      className="bg-white rounded-lg px-3 py-2 border border-gray-100 text-xs"
+                      className="bg-surface rounded-lg px-3 py-2 border border-line text-xs"
                     >
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded font-mono text-[10px]">
+                        <span className="px-1.5 py-0.5 bg-elevated text-secondary rounded font-mono text-[10px]">
                           #{idx}
                         </span>
                         {chunk.metadata.page && (
-                          <span className="px-1.5 py-0.5 bg-blue-50 text-blue-500 rounded text-[10px]">
+                          <span className="px-1.5 py-0.5 bg-accent/15 text-accent rounded text-[10px]">
                             p.{chunk.metadata.page}
                           </span>
                         )}
-                        <span className="text-gray-300 text-[10px]">
+                        <span className="text-tertiary text-[10px]">
                           {chunk.content.length} 字符
                         </span>
                       </div>
-                      <p className="text-gray-600 leading-relaxed whitespace-pre-wrap line-clamp-3">
+                      <p className="text-secondary leading-relaxed whitespace-pre-wrap line-clamp-3">
                         {chunk.content}
                       </p>
                     </div>

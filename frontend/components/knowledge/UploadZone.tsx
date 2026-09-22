@@ -98,19 +98,19 @@ export default function UploadZone({
           cursor-pointer transition-all duration-200 min-h-[200px]
           ${
             isUploading
-              ? "border-blue-300 bg-blue-50/50 cursor-wait"
+              ? "border-accent/50 bg-accent/10 cursor-wait"
               : isDragging
-              ? "border-emerald-400 bg-emerald-50 scale-[1.01]"
-              : "border-gray-300 bg-white hover:border-emerald-400 hover:bg-gray-50"
+              ? "border-success bg-success/10 scale-[1.01]"
+              : "border-line bg-surface hover:border-accent/60 hover:bg-elevated"
           }
         `}
       >
         {isUploading ? (
           /* 上传中状态 */
           <div className="flex flex-col items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-full bg-accent/15 flex items-center justify-center">
               <svg
-                className="w-6 h-6 text-blue-500 animate-spin"
+                className="w-6 h-6 text-accent animate-spin"
                 fill="none"
                 viewBox="0 0 24 24"
               >
@@ -129,13 +129,13 @@ export default function UploadZone({
                 />
               </svg>
             </div>
-            <p className="text-sm font-medium text-blue-600">
+            <p className="text-sm font-medium text-accent">
               {phaseLabel[currentPhase] || "处理中..."}
             </p>
             {/* 进度条 */}
-            <div className="w-48 h-1.5 bg-blue-100 rounded-full overflow-hidden">
+            <div className="w-48 h-1.5 bg-elevated rounded-full overflow-hidden">
               <div
-                className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                className="h-full bg-accent-gradient rounded-full transition-all duration-500"
                 style={{
                   width:
                     currentPhase === "uploading"
@@ -150,9 +150,9 @@ export default function UploadZone({
         ) : (
           /* 默认状态 */
           <>
-            <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center">
+            <div className="w-14 h-14 rounded-full bg-elevated flex items-center justify-center">
               <svg
-                className="w-7 h-7 text-gray-400"
+                className="w-7 h-7 text-tertiary"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -166,11 +166,11 @@ export default function UploadZone({
               </svg>
             </div>
             <div className="text-center">
-              <p className="text-sm font-medium text-gray-700">
+              <p className="text-sm font-medium text-secondary">
                 拖拽文件到此处，或{" "}
-                <span className="text-emerald-600">点击上传</span>
+                <span className="text-accent">点击上传</span>
               </p>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-tertiary mt-1">
                 支持 {ALLOWED_EXTENSIONS.map((e) => `.${e}`).join(" / ")}
                 ，最大 10MB
               </p>
@@ -181,7 +181,7 @@ export default function UploadZone({
 
       {/* 校验错误 */}
       {validationError && (
-        <div className="mt-3 px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600 flex items-center gap-2">
+        <div className="mt-3 px-4 py-2 bg-danger/10 border border-danger/30 rounded-lg text-sm text-danger flex items-center gap-2">
           <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>

@@ -39,12 +39,12 @@ export default function RegisterPage() {
   return (
     <SiteShell>
       <div className="mx-auto max-w-lg app-card p-6">
-        <h1 className="text-2xl font-black">注册账号</h1>
-        <p className="mt-2 text-sm text-slate-500">注册后会自动创建一个默认中文收货地址，便于演示下单和客服上下文绑定。</p>
+        <h1 className="text-2xl font-black text-primary">注册账号</h1>
+        <p className="mt-2 text-sm text-secondary">注册后会自动创建一个默认中文收货地址，便于演示下单和客服上下文绑定。</p>
         <form onSubmit={submit} className="mt-6 grid gap-4">
           {fields.map(([key, label, placeholder]) => (
             <label key={key} className="block">
-              <span className="mb-1 block text-sm font-semibold text-slate-700">{label}</span>
+              <span className="mb-1 block text-sm font-semibold text-secondary">{label}</span>
               <input
                 className="app-input w-full"
                 value={form[key]}
@@ -54,7 +54,7 @@ export default function RegisterPage() {
               />
             </label>
           ))}
-          {error && <div className="rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-600">{error}</div>}
+          {error && <div className="rounded-xl border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</div>}
           <button className="app-button">创建账号</button>
         </form>
       </div>

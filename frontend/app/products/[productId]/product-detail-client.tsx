@@ -47,12 +47,12 @@ export default function ProductDetailClient({ productId }: { productId: string }
     <SiteShell>
       <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
         <div className="app-card p-5">
-          <div className="relative aspect-square overflow-hidden rounded-2xl bg-pink-50">
+          <div className="relative aspect-square overflow-hidden rounded-xl bg-elevated">
             <Image src={mainImage} alt={product.product_name} fill className="object-cover" sizes="50vw" unoptimized />
           </div>
           <div className="mt-4 grid grid-cols-4 gap-3">
             {[1, 2, 3, 4].map((item) => (
-              <div key={item} className="relative aspect-square overflow-hidden rounded-xl border border-pink-100 bg-pink-50">
+              <div key={item} className="relative aspect-square overflow-hidden rounded-xl border border-line bg-elevated">
                 <Image src={mainImage} alt={`${product.product_name}-${item}`} fill className="object-cover" sizes="120px" unoptimized />
               </div>
             ))}
@@ -64,59 +64,59 @@ export default function ProductDetailClient({ productId }: { productId: string }
             <StatusBadge value={product.product_status} />
             <StatusBadge value={product.inventory_status} />
           </div>
-          <h1 className="mt-4 text-3xl font-black leading-tight">{product.product_name}</h1>
-          <p className="mt-3 text-sm leading-7 text-slate-500">{product.description}</p>
+          <h1 className="mt-4 text-3xl font-black leading-tight text-primary">{product.product_name}</h1>
+          <p className="mt-3 text-sm leading-7 text-secondary">{product.description}</p>
           <div className="mt-5 flex items-end gap-3">
-            <div className="text-3xl font-black text-[#ff2442]">{formatCurrency(product.price)}</div>
-            <div className="pb-1 text-sm text-slate-400">库存 {product.available_quantity ?? 0} 件</div>
+            <div className="text-3xl font-black tabular-nums text-primary">{formatCurrency(product.price)}</div>
+            <div className="pb-1 text-sm text-tertiary">库存 {product.available_quantity ?? 0} 件</div>
           </div>
 
           <div className="mt-6 grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl bg-pink-50 p-4">
-              <div className="text-xs text-slate-500">品牌</div>
-              <div className="mt-1 font-bold">{product.brand_name}</div>
+            <div className="rounded-xl bg-elevated p-4">
+              <div className="text-xs text-secondary">品牌</div>
+              <div className="mt-1 font-bold text-primary">{product.brand_name}</div>
             </div>
-            <div className="rounded-2xl bg-pink-50 p-4">
-              <div className="text-xs text-slate-500">分类</div>
-              <div className="mt-1 font-bold">{product.category_name}</div>
+            <div className="rounded-xl bg-elevated p-4">
+              <div className="text-xs text-secondary">分类</div>
+              <div className="mt-1 font-bold text-primary">{product.category_name}</div>
             </div>
-            <div className="rounded-2xl bg-pink-50 p-4">
-              <div className="text-xs text-slate-500">SKU</div>
-              <div className="mt-1 font-bold">{product.sku_id}</div>
+            <div className="rounded-xl bg-elevated p-4">
+              <div className="text-xs text-secondary">SKU</div>
+              <div className="mt-1 font-bold text-primary">{product.sku_id}</div>
             </div>
           </div>
 
           <div className="mt-6 app-panel p-5 shadow-none">
-            <h2 className="font-black">规格参数</h2>
+            <h2 className="font-black text-primary">规格参数</h2>
             <div className="mt-3 grid gap-2 md:grid-cols-2">
               {Object.entries(product.attributes || {}).map(([key, value]) => (
-                <div key={key} className="flex justify-between border-b border-slate-100 py-2 text-sm">
-                  <span className="text-slate-500">{key}</span>
-                  <span className="font-medium">{String(value)}</span>
+                <div key={key} className="flex justify-between border-b border-line py-2 text-sm">
+                  <span className="text-secondary">{key}</span>
+                  <span className="font-medium text-primary">{String(value)}</span>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
-            <div className="flex items-center overflow-hidden rounded-xl border border-slate-200">
-              <button className="px-3 py-2 text-slate-500" onClick={() => setQuantity(Math.max(1, quantity - 1))}>-</button>
+            <div className="flex items-center overflow-hidden rounded-xl border border-line bg-elevated">
+              <button className="px-3 py-2 text-secondary transition hover:text-primary" onClick={() => setQuantity(Math.max(1, quantity - 1))}>-</button>
               <input
-                className="w-14 border-x border-slate-200 px-2 py-2 text-center outline-none"
+                className="w-14 border-x border-line bg-transparent px-2 py-2 text-center text-primary outline-none"
                 type="number"
                 min={1}
                 max={20}
                 value={quantity}
                 onChange={(e) => setQuantity(Number(e.target.value))}
               />
-              <button className="px-3 py-2 text-slate-500" onClick={() => setQuantity(Math.min(20, quantity + 1))}>+</button>
+              <button className="px-3 py-2 text-secondary transition hover:text-primary" onClick={() => setQuantity(Math.min(20, quantity + 1))}>+</button>
             </div>
             <button onClick={createOrder} className="app-button px-8">
               立即下单
             </button>
             <AgentEntry userId={userId || undefined} productId={product.product_id} label="咨询此商品" />
           </div>
-          {message && <div className={`mt-4 rounded-xl border p-3 text-sm ${message.startsWith("下单失败") ? "border-red-100 bg-red-50 text-red-600" : "border-emerald-100 bg-emerald-50 text-emerald-700"}`}>{message}</div>}
+          {message && <div className={`mt-4 rounded-xl border p-3 text-sm ${message.startsWith("下单失败") ? "border-danger/30 bg-danger/10 text-danger" : "border-success/30 bg-success/10 text-success"}`}>{message}</div>}
         </div>
       </div>
     </SiteShell>

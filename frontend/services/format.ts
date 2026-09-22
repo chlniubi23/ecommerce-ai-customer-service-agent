@@ -64,19 +64,20 @@ export function zhStatus(value?: string | null) {
 
 export function statusTone(value?: string | null) {
   const text = zhStatus(value);
+  // Dark Premium：彩色圆点 + 文字方案，禁止彩色渐变徽章（仅状态提示小面积功能色）
   if (/(异常|拒绝|取消|无货|锁定|失败)/.test(text)) {
-    return "border-red-100 bg-red-50 text-red-600";
+    return "border-danger/30 bg-danger/10 text-danger";
   }
   if (/(升级|高|紧急)/.test(text)) {
-    return "border-violet-100 bg-violet-50 text-violet-600";
+    return "border-warning/30 bg-warning/10 text-warning";
   }
   if (/(待|审核|处理|运输|派送|紧张|售后|预售|升级|备货)/.test(text)) {
-    return "border-blue-100 bg-blue-50 text-blue-700";
+    return "border-warning/30 bg-warning/10 text-warning";
   }
   if (/(完成|签收|通过|正常|有货|支付|收货|解决|上架)/.test(text)) {
-    return "border-emerald-100 bg-emerald-50 text-emerald-600";
+    return "border-success/30 bg-success/10 text-success";
   }
-  return "border-slate-100 bg-slate-50 text-slate-600";
+  return "border-line bg-elevated text-secondary";
 }
 
 const PRODUCT_IMAGE_FALLBACK = "/products/placeholder.svg";

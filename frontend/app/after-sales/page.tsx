@@ -47,14 +47,14 @@ export default function AfterSalesPage() {
     <SiteShell>
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-2xl font-black">售后中心</h1>
-          <p className="mt-1 text-sm text-slate-500">退款记录、审核状态和进度均来自真实数据库。</p>
+          <h1 className="text-2xl font-black text-primary">售后中心</h1>
+          <p className="mt-1 text-sm text-secondary">退款记录、审核状态和进度均来自真实数据库。</p>
         </div>
         <AgentEntry userId={userId || undefined} label="咨询退款Agent" />
       </div>
       <div className="mt-5 grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
         <div className="app-card p-5">
-          <h2 className="font-black">申请退款</h2>
+          <h2 className="font-black text-primary">申请退款</h2>
           <div className="mt-4 space-y-3">
             <select className="app-input w-full" value={selectedOrder} onChange={(e) => setSelectedOrder(e.target.value)}>
               <option value="">选择订单</option>
@@ -64,7 +64,7 @@ export default function AfterSalesPage() {
             </select>
             <input className="app-input w-full" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="退款原因" />
             <button onClick={submit} className="app-button">提交退款申请</button>
-            {message && <div className={`rounded-xl border p-3 text-sm ${message.includes("失败") ? "border-red-100 bg-red-50 text-red-600" : "border-emerald-100 bg-emerald-50 text-emerald-700"}`}>{message}</div>}
+            {message && <div className={`rounded-xl border p-3 text-sm ${message.includes("失败") ? "border-danger/30 bg-danger/10 text-danger" : "border-success/30 bg-success/10 text-success"}`}>{message}</div>}
           </div>
         </div>
         <div className="space-y-3">
@@ -72,18 +72,18 @@ export default function AfterSalesPage() {
             <div key={refund.refund_id} className="app-panel p-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <div className="font-black">{refund.refund_id}</div>
-                  <Link href={`/orders/${refund.order_id}`} className="text-sm font-semibold text-[#ff2442]">{refund.order_id}</Link>
+                  <div className="font-black text-primary">{refund.refund_id}</div>
+                  <Link href={`/orders/${refund.order_id}`} className="ai-link text-sm font-semibold">{refund.order_id}</Link>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <StatusBadge value={refund.audit_status} />
                   <StatusBadge value={refund.refund_status} />
                 </div>
               </div>
-              <div className="mt-3 text-sm text-slate-600">{refund.refund_reason}</div>
+              <div className="mt-3 text-sm text-secondary">{refund.refund_reason}</div>
               <div className="mt-2 flex items-center justify-between">
-                <span className="text-xs text-slate-400">{formatDate(refund.created_at)}</span>
-                <span className="font-black text-[#ff2442]">{formatCurrency(refund.refund_amount)}</span>
+                <span className="text-xs text-tertiary">{formatDate(refund.created_at)}</span>
+                <span className="font-black tabular-nums text-primary">{formatCurrency(refund.refund_amount)}</span>
               </div>
             </div>
           ))}
