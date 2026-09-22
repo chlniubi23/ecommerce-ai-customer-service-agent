@@ -1,7 +1,9 @@
 """FastAPI application entrypoint for the AI Agent commerce demo."""
 
+import asyncio
 from contextlib import asynccontextmanager
 import logging
+import time
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,6 +47,26 @@ async def lifespan(app: FastAPI):
 
     initialize_workflow_system()
     logger.info("Workflow system initialized")
+
+    # Embedding 模型预热（G3）：后台加载 local BGE 模型，消除首次知识查询 ~11.9s 的加载等待。
+    # 预热失败仅告警，不阻塞服务启动；测试环境经 EMBEDDING_WARMUP=false 关闭。
+    if settings.embedding_warmup and settings.embedding_provider == "local":
+        async def _warmup_embedding_model() -> None:
+            try:
+                from app.rag.vectorstore.embedding_provider import get_embedding_provider
+
+                started = time.perf_counter()
+                get_embedding_provider().embed_query("预热")
+                logger.info(
+                    "Embedding warmup completed in %.1fs (model=%s)",
+                    time.perf_counter() - started,
+                    settings.embedding_model,
+                )
+            except Exception as exc:  # 预热失败不影响启动
+                logger.warning("Embedding warmup skipped: %s", exc)
+
+        asyncio.create_task(_warmup_embedding_model())
+        logger.info("Embedding warmup task scheduled (model=%s)", settings.embedding_model)
 
     yield
 

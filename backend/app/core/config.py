@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     embedding_api_key: str = ""    # 仅 provider=openai 时使用
     embedding_base_url: str = ""   # 仅 provider=openai 时使用
     embedding_dim: int = 512
+    # 启动预热：lifespan 中后台加载 local Embedding 模型，消除首次知识查询的加载等待。
+    # 测试环境必须设 EMBEDDING_WARMUP=false（见 tests/conftest.py），禁止真实加载模型。
+    embedding_warmup: bool = True
 
     # ========== 向量数据库 (qdrant-client 本地模式) ==========
     # 注：首选 ChromaDB 在本机 Windows 环境不可用（Rust 绑定崩溃），按方案回退 qdrant 本地模式

@@ -115,6 +115,85 @@ export interface AgentTraceData {
 
   /** Workflow 执行步骤数 */
   workflow_steps?: number;
+
+  // ===== 多来源信息整合：RAG 检索透明化（可选字段，向后兼容） =====
+  /** 多路检索各路命中统计（语义路/关键词路） */
+  retrieval_routes?: RetrievalRouteStatsMap;
+
+  /** RRF 融合分数 */
+  rrf_score?: number;
+
+  /** 二次补检触发信息 */
+  revalidation?: RetrievalRevalidation;
+}
+
+// ===== RAG 检索透明化类型（G3：Debug Panel 展示用，均为可选，向后兼容） =====
+
+/** 单路检索命中统计 */
+export interface RetrievalRouteStats {
+  /** 该路命中条数 */
+  count?: number;
+  /** 该路最高分 */
+  top_score?: number;
+  /** 关键词路使用的核心词表 */
+  terms?: string[];
+}
+
+/** 多路检索统计映射（vector=语义路 / keyword=关键词路） */
+export interface RetrievalRouteStatsMap {
+  vector?: RetrievalRouteStats;
+  keyword?: RetrievalRouteStats;
+}
+
+/** 二次补检触发信息（相关性校验/覆盖度校验） */
+export interface RetrievalRevalidation {
+  /** 是否触发补检 */
+  triggered?: boolean;
+  /** 触发原因：relevance（语义路未命中）/ coverage（关键实体缺失） */
+  reason?: string;
+  /** 补检使用的重试查询 */
+  retry_query?: string;
+  /** 补检后结果条数 */
+  retry_result_count?: number;
+  /** 是否应用实体护栏过滤 */
+  entity_guard_applied?: boolean;
+}
+
+/** knowledge_search 工具 debug_info 中与检索透明化相关的字段 */
+export interface RetrievalDebugInfo {
+  fusion?: string;
+  routes?: RetrievalRouteStatsMap;
+  revalidation?: RetrievalRevalidation;
+  expanded_query?: string;
+  inferred_category?: string;
+}
+
+/**
+ * 从 trace 中提取检索透明化数据。
+ * 优先读 AgentTraceData 顶层可选字段；否则从 knowledge_search 工具调用的
+ * tool_output.debug_info 中提取（后端当前的数据通路）。
+ * 无检索 trace（如闲聊）时返回 null。
+ */
+export function extractRetrievalDebug(
+  trace: AgentTraceData | null | undefined,
+): RetrievalDebugInfo | null {
+  if (!trace) return null;
+
+  if (trace.retrieval_routes || trace.revalidation) {
+    return {
+      routes: trace.retrieval_routes,
+      revalidation: trace.revalidation,
+    };
+  }
+
+  const knowledgeCall = (trace.tool_calls || []).find(
+    (call) => call.tool_name === "knowledge_search" && call.success && call.tool_output,
+  );
+  const debug = knowledgeCall?.tool_output?.debug_info as RetrievalDebugInfo | undefined;
+  if (debug && (debug.routes || debug.revalidation)) {
+    return debug;
+  }
+  return null;
 }
 
 /**

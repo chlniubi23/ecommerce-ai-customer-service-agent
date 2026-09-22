@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { AgentTraceData } from "@/types/trace";
-import { CONFIDENCE_COLORS, getConfidenceLevel } from "@/types/trace";
+import { CONFIDENCE_COLORS, extractRetrievalDebug, getConfidenceLevel } from "@/types/trace";
 
 interface DebugPanelProps {
   trace: AgentTraceData | null;
@@ -101,6 +101,50 @@ export default function DebugPanel({ trace, alwaysVisible = false }: DebugPanelP
               <div className="mt-1">{trace.tool_error}</div>
             </div>
           )}
+
+          {(() => {
+            const retrievalDebug = extractRetrievalDebug(trace);
+            if (!retrievalDebug) return null;
+            const vector = retrievalDebug.routes?.vector;
+            const keyword = retrievalDebug.routes?.keyword;
+            const revalidation = retrievalDebug.revalidation;
+            return (
+              <div className="rounded-xl border border-cyan-100 bg-cyan-50/60 p-3 md:col-span-4">
+                <div className="mb-2 font-bold text-cyan-700">RAG 检索透明化</div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <div className="rounded-lg border border-cyan-100 bg-white p-2">
+                    <div className="mb-1 text-[11px] font-bold text-slate-600">多路检索分数</div>
+                    <div className="text-[11px] text-slate-600">
+                      <div>语义路（vector）：命中 {vector?.count ?? 0} 条，最高分 {vector?.top_score ?? "-"}</div>
+                      <div>关键词路（keyword）：命中 {keyword?.count ?? 0} 条，最高分 {keyword?.top_score ?? "-"}</div>
+                      {retrievalDebug.fusion && <div className="text-slate-400">融合方式：{retrievalDebug.fusion}</div>}
+                    </div>
+                  </div>
+                  {revalidation && (
+                    <div className="rounded-lg border border-cyan-100 bg-white p-2">
+                      <div className="mb-1 text-[11px] font-bold text-slate-600">二次补检</div>
+                      {revalidation.triggered ? (
+                        <div className="text-[11px] text-slate-600">
+                          <div>
+                            触发原因：
+                            {revalidation.reason === "relevance"
+                              ? "语义路未命中（相关性校验）"
+                              : revalidation.reason === "coverage"
+                                ? "关键实体缺失（覆盖度校验）"
+                                : revalidation.reason || "未知"}
+                          </div>
+                          {revalidation.retry_query && <div>重试查询：{revalidation.retry_query}</div>}
+                          <div>补检后结果：{revalidation.retry_result_count ?? "-"} 条</div>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-slate-400">本轮未触发补检</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {trace.reasoning && (
             <div className="rounded-xl border border-blue-100 bg-white p-3 md:col-span-4">
