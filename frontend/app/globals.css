@@ -3,11 +3,21 @@
 @tailwind utilities;
 
 :root {
-  --brand: #ff2442;
-  --brand-dark: #e60033;
-  --brand-violet: #7c3aed;
-  --paper: #fff7fa;
-  --ink: #111827;
+  /* Dark Premium 设计 Token（唯一事实源，与 tailwind.config.ts 同步） */
+  --bg-base: #0A0A0F;
+  --bg-surface: #12121A;
+  --bg-elevated: #1A1A26;
+  --border-line: rgba(255, 255, 255, 0.08);
+  --text-primary: #F4F4F6;
+  --text-secondary: #A1A1B0;
+  --text-tertiary: #6B6B7B;
+  --accent: #6366F1;
+  --accent-hover: #818CF8;
+  --accent-glow: rgba(99, 102, 241, 0.35);
+  --accent-gradient: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
+  --success: #34D399;
+  --warning: #FBBF24;
+  --danger: #F87171;
 }
 
 @layer base {
@@ -21,12 +31,12 @@
 
   body {
     background:
-      radial-gradient(circle at top left, rgba(255, 36, 66, 0.12), transparent 34rem),
-      radial-gradient(circle at top right, rgba(255, 122, 24, 0.10), transparent 32rem),
-      linear-gradient(180deg, #fff7fa 0%, #f8f8f9 46%, #ffffff 100%);
-    color: var(--ink);
+      radial-gradient(circle at 30% -10%, rgba(99, 102, 241, 0.15), transparent 36rem),
+      var(--bg-base);
+    color: var(--text-primary);
     font-family: Arial, "Microsoft YaHei", "PingFang SC", sans-serif;
     letter-spacing: 0;
+    line-height: 1.6;
   }
 
   input,
@@ -39,35 +49,35 @@
 
 @layer components {
   .app-card {
-    @apply rounded-2xl border border-pink-100/80 bg-white/95 shadow-[0_18px_52px_rgba(255,36,66,0.08)] backdrop-blur;
+    @apply rounded-xl border border-line bg-surface shadow-card-inset backdrop-blur;
   }
 
   .app-panel {
-    @apply rounded-2xl border border-pink-100/70 bg-white/95 shadow-[0_12px_34px_rgba(15,23,42,0.06)] backdrop-blur;
+    @apply rounded-xl border border-line bg-surface shadow-card-inset backdrop-blur;
   }
 
   .app-input {
-    @apply rounded-xl border border-pink-100 bg-white px-4 py-2.5 text-sm outline-none transition placeholder:text-slate-400 focus:border-pink-300 focus:ring-2 focus:ring-pink-100;
+    @apply rounded-xl border border-line bg-elevated px-4 py-2.5 text-sm text-primary outline-none transition placeholder:text-tertiary focus:border-accent/60 focus:ring-2 focus:ring-accent/20;
   }
 
   .app-button {
-    @apply inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-[#ff2442] to-[#ff7a18] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(255,36,66,0.18)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(255,36,66,0.24)];
+    @apply inline-flex items-center justify-center rounded-xl bg-accent-gradient px-4 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:shadow-accent-glow;
   }
 
   .app-button-secondary {
-    @apply inline-flex items-center justify-center rounded-xl border border-pink-100 bg-white px-4 py-2.5 text-sm font-semibold text-[#ff2442] transition hover:-translate-y-0.5 hover:bg-pink-50;
+    @apply inline-flex items-center justify-center rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-semibold text-primary transition hover:-translate-y-0.5 hover:border-accent/60 hover:text-accent;
   }
 
   .ai-soft-panel {
-    @apply rounded-2xl border border-pink-100 bg-[#fff7fa] shadow-inner;
+    @apply rounded-xl border border-line bg-elevated shadow-inner;
   }
 
   .ai-link {
-    @apply font-bold text-[#ff2442] transition hover:text-[#e60033];
+    @apply font-bold text-accent transition hover:text-accent-hover;
   }
 
   .ai-price {
-    @apply font-black text-[#ff2442];
+    @apply font-black text-primary tabular-nums;
   }
 
   .chat-scrollbar::-webkit-scrollbar {
@@ -79,11 +89,11 @@
   }
 
   .chat-scrollbar::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-pink-200;
+    @apply rounded-full bg-elevated;
   }
 
   .chat-scrollbar::-webkit-scrollbar-thumb:hover {
-    @apply bg-pink-300;
+    @apply bg-accent/50;
   }
 }
 
@@ -180,10 +190,10 @@
 
 @keyframes assistant-thinking {
   0%, 100% {
-    filter: drop-shadow(0 12px 24px rgba(37, 99, 235, 0.18));
+    filter: drop-shadow(0 12px 24px rgba(99, 102, 241, 0.18));
   }
   50% {
-    filter: drop-shadow(0 18px 30px rgba(124, 58, 237, 0.28));
+    filter: drop-shadow(0 18px 30px rgba(139, 92, 246, 0.30));
   }
 }
 
@@ -246,7 +256,7 @@
   display: inline-block;
   margin-left: 1px;
   animation: typewriterBlink 0.85s step-start infinite;
-  color: #7c3aed;
+  color: #6366F1;
   font-size: 0.8em;
   vertical-align: middle;
 }
@@ -291,7 +301,7 @@
 }
 
 .skeleton {
-  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+  background: linear-gradient(90deg, #1A1A26 25%, #232332 50%, #1A1A26 75%);
   background-size: 200% 100%;
   animation: skeletonShimmer 1.6s ease-in-out infinite;
   border-radius: 6px;
