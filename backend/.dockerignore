@@ -1,0 +1,17 @@
+.venv/
+venv/
+vector_store/
+workflow_repository/
+uploads/
+__pycache__/
+*.pyc
+.pytest_cache/
+.pytest_tmp/
+.env
+*.log
+*.err.log
+evaluation/*report*.json
+golden_question_report.json
+demo_cleanup_backup_*.json
+tests/
+.git/
