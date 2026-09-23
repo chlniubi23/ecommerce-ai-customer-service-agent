@@ -50,13 +50,15 @@ async def lifespan(app: FastAPI):
 
     # Embedding 模型预热（G3）：后台加载 local BGE 模型，消除首次知识查询 ~11.9s 的加载等待。
     # 预热失败仅告警，不阻塞服务启动；测试环境经 EMBEDDING_WARMUP=false 关闭。
+    # 注意：模型加载是同步阻塞调用，必须丢到线程池执行——若直接在事件循环上运行，
+    # 断网时 huggingface.co 的超时重试会把整个 asyncio loop 卡死数分钟，导致所有请求 Failed to fetch。
     if settings.embedding_warmup and settings.embedding_provider == "local":
         async def _warmup_embedding_model() -> None:
             try:
                 from app.rag.vectorstore.embedding_provider import get_embedding_provider
 
                 started = time.perf_counter()
-                get_embedding_provider().embed_query("预热")
+                await asyncio.to_thread(get_embedding_provider().embed_query, "预热")
                 logger.info(
                     "Embedding warmup completed in %.1fs (model=%s)",
                     time.perf_counter() - started,

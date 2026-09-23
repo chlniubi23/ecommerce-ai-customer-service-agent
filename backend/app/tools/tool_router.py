@@ -128,13 +128,23 @@ def _extract_ticket_info(text: str) -> dict[str, str]:
     return {"description": text[:200], "category": category}
 
 
+# 前端注入的系统补充上下文固定包含触发词，例如：
+#   "如果用户问订单、物流、退款、投诉、人工客服，必须进入对应 Agent/工具流程"
+# 若对完整消息（用户输入+系统上下文）做关键词匹配，"人工客服"必然命中，
+# 所有带页面上下文的请求都会被劫持到 transfer_human（还会静默创建真实排队请求）。
+# 因此人工意图只允许基于用户可见话术判断；系统上下文里的"本轮任务"指令
+# 由 classifier 规则层路由，不需要这里的兜底。
+_SYSTEM_CONTEXT_MARKER = "[系统补充上下文"
+
+
 def _detect_human_transfer(text: str) -> bool:
-    """检测是否需要转人工"""
+    """检测是否需要转人工（仅基于用户可见输入，剥离前端系统补充上下文）"""
+    visible = text.split(_SYSTEM_CONTEXT_MARKER, 1)[0]
     keywords = [
         "转人工", "人工客服", "人工服务", "真人", "活人",
         "找人", "不想跟机器", "不想和AI", "找客服",
     ]
-    return any(kw in text for kw in keywords)
+    return any(kw in visible for kw in keywords)
 
 
 # ========== 核心决策函数 ==========

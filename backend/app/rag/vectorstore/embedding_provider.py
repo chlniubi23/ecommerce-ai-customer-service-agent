@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from app.core.config import get_settings
@@ -30,6 +31,26 @@ logger = logging.getLogger(__name__)
 
 # bge 官方推荐：查询侧加 instruction 前缀，入库侧不加
 BGE_QUERY_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
+
+
+def _model_fully_cached(model_name: str) -> bool:
+    """判断模型是否已完整缓存到本地 HF hub 缓存目录。
+
+    断网/受限网络环境下，sentence-transformers 默认会对 huggingface.co 发起
+    版本校验请求（多次超时重试可达数分钟）。若快照已存在，则以离线模式加载，
+    彻底跳过联网校验。
+    """
+    try:
+        from huggingface_hub import constants as hf_constants
+
+        snapshots_dir = (
+            Path(hf_constants.HF_HUB_CACHE)
+            / f"models--{model_name.replace('/', '--')}"
+            / "snapshots"
+        )
+        return snapshots_dir.is_dir() and any(snapshots_dir.iterdir())
+    except Exception:  # pragma: no cover - 缓存探测失败则按在线处理
+        return False
 
 # OpenAI 兼容 API 批量请求大小与重试参数
 _OPENAI_BATCH_SIZE = 32
@@ -71,7 +92,17 @@ class LocalBGEProvider:
 
                     logger.info("[EMBEDDING] 加载本地模型: %s ...", self.model_name)
                     started = time.perf_counter()
-                    self._model = SentenceTransformer(self.model_name)
+                    if _model_fully_cached(self.model_name):
+                        # 快照已缓存：离线加载，跳过对 huggingface.co 的联网校验（断网环境可直达秒级加载）
+                        try:
+                            self._model = SentenceTransformer(
+                                self.model_name, local_files_only=True
+                            )
+                        except TypeError:  # pragma: no cover - 兼容不支持该参数的旧版本
+                            self._model = SentenceTransformer(self.model_name)
+                    else:
+                        # 首次下载：仍走在线路径，由用户自行保证网络可用
+                        self._model = SentenceTransformer(self.model_name)
                     logger.info(
                         "[EMBEDDING] 模型加载完成: %s, 耗时 %.1fs",
                         self.model_name,
