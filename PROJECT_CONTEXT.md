@@ -24,13 +24,18 @@
 | 向量库 | qdrant-client 1.19 **本地模式**（纯 Python，持久化于 `backend/vector_store/qdrant/`）。首选 ChromaDB 因 Windows 下 Rust 绑定崩溃而回退，历史包袱：存储模块文件名仍为 `chroma_store.py` |
 | Embedding | 默认本地 `sentence-transformers` + `BAAI/bge-small-zh-v1.5`（512 维，查询侧带官方 instruction 前缀）；可切 OpenAI 兼容 Embedding API（`embedding_provider.py` 工厂，支持测试注入） |
 | 测试 | pytest 8.3 + httpx（Starlette TestClient，SSE 端点测试） |
+| 部署 | Docker Compose 三服务（MySQL 8 + 后端 + 前端），一键 `docker compose up -d`，首启自动建库+种子用户+演示数据+RAG 索引重建（见 §4.1） |
 
 ## 3. 目录结构导览（关键路径）
 
 ```
 ├── PROJECT_CONTEXT.md               # 本文
-├── 开发Prompt-*.md / *交付报告.md    # 三轮迭代的开发提示词与交付报告（多来源信息整合、评测集建设、前端视觉重塑）
+├── README.md                        # 公开仓库主页（3 分钟看懂：定位/QuickStart/实测指标）
+├── docs/ARCHITECTURE.md             # 深入架构文档（分层/模块职责/流程/设计决策/技术债）
+├── docs/screenshots/                # 截图占位目录
+├── docker-compose.yml               # 一键全栈编排（db/backend/frontend + 命名卷持久化）
 ├── backend/
+│   ├── Dockerfile                   # 后端镜像（EMBEDDING_PRELOAD 双变体：本地 BGE 2.3GB / slim 412MB）
 │   ├── app/
 │   │   ├── main.py                  # FastAPI 入口 + lifespan（路由/工具/FSM/workflow 初始化 + embedding 预热）
 │   │   ├── core/config.py           # 全部环境变量集中配置（pydantic-settings，读 backend/.env）
@@ -48,12 +53,13 @@
 │   │   ├── prompts/                 # 各 Flow 系统提示词 + router 分类提示词
 │   │   ├── schemas/、models/        # IntentType/Trace 数据类、统一响应信封 BaseResponse
 │   │   └── architecture/production.py  # 生产架构声明表（生产入口、intent→flow/agent/tool 映射、已移除层清单）
-│   ├── database/schema.sql          # MySQL 建库建表（另有 demo_minimal_cn.sql / reset_empty.sql）
+│   ├── database/schema.sql          # MySQL 建库建表（另有 demo_minimal_cn.sql / reset_empty.sql / docker_seed_users.sql）
+│   ├── Dockerfile                   # （容器）双变体构建：EMBEDDING_PRELOAD=true 预下载 BGE；false 走 OpenAI 兼容 Embedding（slim）
 │   ├── knowledge_base/              # 真实知识库文档（~70 个 txt，原子知识卡风格，按 refund/logistics/coupon/membership/complaint/sop/operation/faq/product 分类）
 │   ├── vector_store/qdrant/         # 向量持久化（gitignore）
 │   ├── workflow_repository/         # workflow 引擎的 JSON 定义与 trace 落盘（gitignore）
 │   ├── evaluation/                  # 路由评测(dataset.py/run_eval.py) + RAG 评测(rag_dataset.py 30条/run_rag_eval.py)
-│   ├── scripts/                     # smoke_test / smoke_multisource / golden_question_validation / 诊断与数据重置脚本
+│   ├── scripts/                     # docker_init（容器启动前置：等 MySQL/空索引重建）/ smoke_test / golden_question_validation / 数据重置脚本
 │   ├── rebuild_rag_index.py         # 全量重建向量索引（--force 清空重建）
 │   └── tests/                       # 27 个测试文件 + conftest.py（强制 EMBEDDING_WARMUP=false / HF_HUB_OFFLINE=1）
 └── frontend/
@@ -92,6 +98,15 @@ FastAPI（backend/app/main.py，端口默认 8000）
 - **`app/workflow/` 引擎（AgentGraph/SupervisorAgent/Checkpoint/Branch/Governance/Handoff 等）不在聊天主链路上**：仅启动时 `initialize_workflow_system()` 注册，主链路只借用其 `decision_tracer` 写 trace JSON（`backend/workflow_repository/trace/decision_*.json`）。
 - **数据库边界统一**：所有 SQL 都在 `database/repositories.py`；工具层不直接写 SQL。
 - **前端→后端上下文协议**：前端把页面快照与任务指令以魔法文本注入用户消息（见 §15），后端多处 split 解析。
+
+### 4.1 Docker 部署体系（2026-09-23 新增）
+
+- **一键全栈**：`docker compose up -d` 起 MySQL 8 + 后端 + 前端；命名卷 `mysql_data`/`qdrant_data` 持久化；二启幂等（initdb 只在空卷跑、空索引才重建）。
+- **MySQL 首启初始化链**（`/docker-entrypoint-initdb.d/` 字典序）：`01-schema.sql`（建表）→ `02-seed-users.sql`（**docker_seed_users.sql**，种子演示用户 USR_DEMO_001/demo123456 + 地址；因 demo_minimal_cn.sql 只引用"最新已存在用户"不建用户，空库直接跑会 NULL 失败）→ `03-demo.sql`（演示数据）。
+- **后端容器 CMD 前置** `scripts/docker_init.py`：等 MySQL（60s 兜底重试）→ qdrant 索引为空则调 `rebuild_rag_index.run(force=True)`（重建后 client 已关闭，不能再 count）→ uvicorn。
+- **Embedding 双变体**（build arg `EMBEDDING_PRELOAD`）：`true` 默认（torch CPU 索引安装 + BGE 预下载进镜像层，HF_HOME=/opt/hf-cache，镜像 2.3GB，离线可用）；`false` slim（剔除 torch/sentence-transformers，412MB，配 `EMBEDDING_PROVIDER=openai` 走 API，代码侧 embedding_provider 懒加载保证可 import）。
+- **国内网络适配**：基础镜像经 daocloud 代理拉取 retag（auth.docker.io 被 DNS 污染）；Dockerfile 默认 `HF_ENDPOINT=hf-mirror.com`、`PIP_INDEX_URL=清华源`（PyPI 直连响应截断）；Dockerfile 不可用 `# syntax=docker/dockerfile:1`（会拉语法前端镜像失败）。
+- **前端构建期注入**：`NEXT_PUBLIC_API_BASE_URL` 经 build arg 在 `next build` 时内联（compose 默认 localhost:8000，服务器部署需改）。
 
 ## 5. API 接口清单（实际存在的路由）
 
@@ -153,7 +168,7 @@ FastAPI（backend/app/main.py，端口默认 8000）
 ### 6.4 工具层（`app/tools/`）
 
 - **`tool_registry.py`**：11 个工具实例注册 + intent→tool 映射 + `AGENT_TOOL_PERMISSIONS`（Agent→Tool 权限表，SupervisorAgent 全量）。注册表：`logistics_query`、`refund_apply`、`product_query`、`complaint_create`、`knowledge_search`、`query_order`、`create_ticket`、`transfer_human`、`query_inventory`、`query_coupons`、`recommend_products`。
-- **`tool_router.py`**：`select_tool()` 按意图决策；参数提取正则（订单号优先级：系统上下文"本轮优先处理订单号"→ 显式"订单号:"→ 紧邻/裸 ORD 前缀，不把裸数字当订单号）；`_detect_human_transfer` 仅基于用户可见输入（剥离 `[系统补充上下文`，防止指令文本劫持转人工——未提交修复）；`select_tools_for_workflow()` 双工具编排（物流+退款）。
+- **`tool_router.py`**：`select_tool()` 按意图决策；参数提取正则（订单号优先级：系统上下文"本轮优先处理订单号"→ 显式"订单号:"→ 紧邻/裸 ORD 前缀，不把裸数字当订单号）；`_detect_human_transfer` 仅基于用户可见输入（剥离 `[系统补充上下文`，防止指令文本劫持转人工，已随回归测试提交）；`select_tools_for_workflow()` 双工具编排（物流+退款）。
 - **`executors/tool_executor.py`**：统一执行入口——input_schema 校验 → `asyncio.wait_for` 超时（默认 10s）→ 异常捕获 → `ToolExecutionResult`（含 latency/timed_out/to_trace_dict/to_context_string）。
 - **各工具实现**：全部查/写真实 MySQL；写操作（refund_apply/complaint_create/create_ticket/transfer_human）成功后经 `services/proactive.py` 的 `emit_proactive_event` 安全落主动事件（吞异常不拖累主流程）；查询工具写 `agent_audit_logs` 审计。
 
@@ -200,7 +215,7 @@ FastAPI（backend/app/main.py，端口默认 8000）
 
 ## 9. 测试与评测体系
 
-- **单测**：`backend/tests/` 27 个文件 + `conftest.py`（强制 `EMBEDDING_WARMUP=false`、`HF_HUB_OFFLINE=1`，测试不真实加载模型）。覆盖：聊天流式、分类器上下文安全、投诉跟进路由/意图/待确认流程、协调器安全、优惠券运行时/路由、embedding 预热、转人工入队、知识分类过滤、两个 FSM 的 order_id、多来源整合、订单号提取、订单查询路由、个性化推荐、主动事件、RAG 评测集与向量库、路由上下文、tool_router 上下文安全（新）。交付报告记录最近全绿 **110 passed**。测试依赖本机 MySQL。
+- **单测**：`backend/tests/` 22 个测试文件 + `conftest.py`（强制 `EMBEDDING_WARMUP=false`、`HF_HUB_OFFLINE=1`，测试不真实加载模型）。覆盖：聊天流式、分类器上下文安全、投诉跟进路由/意图/待确认流程、协调器安全、优惠券运行时/路由、embedding 预热、转人工入队、知识分类过滤、两个 FSM 的 order_id、多来源整合、订单号提取、订单查询路由、个性化推荐、主动事件、RAG 评测集与向量库、路由上下文、tool_router 上下文安全。最近全绿 **130 passed**（须用 `backend/.venv` 跑，系统 Anaconda 缺依赖）。测试依赖本机 MySQL。
 - **评测**：`evaluation/run_eval.py`（路由层评测：离线模式禁用 LLM 逼规则层独立作答，可入 CI；`--live` 在线全量）+ `evaluation/run_rag_eval.py`（30 条标注用例，10 类 × ≥2 条含口语变体 + 3 条无答案；指标 top1/top3 命中率、无答案过滤率，`--fail-under` 可设阈值非零退出）。黄金问题校准（`RETRIEVAL_MIN_SCORE=0.35`）有脚本与报告支撑。
 - **脚本**：`scripts/smoke_test.py`、`smoke_multisource.py`（端到端冒烟）、`golden_question_validation.py`、`diagnose_knowledge_runtime_consistency.py`、`reset_business_data.py`。
 
@@ -223,17 +238,16 @@ FastAPI（backend/app/main.py，端口默认 8000）
 - [x] 评测集（路由 + RAG 30 条）与冒烟脚本
 - [x] 前端 Dark Premium 视觉体系（P1–P5 全部完成）
 - [x] 转人工真实排队（human_transfer_requests 落库）
+- [x] Docker 一键部署（compose 三服务，首启自动初始化，Embedding 双变体，见 §4.1）
 
-## 11. 当前工作区状态（未提交，git 状态如实记录）
+## 11. 当前工作区状态（已全部提交，2026-09-23）
 
-- 分支 `main`；最近提交为前端视觉重塑 P2–P5 系列。
-- **未提交的后端修改（3 处 + 1 个新测试）**：
-  1. `main.py`：embedding 预热移入 `asyncio.to_thread`（修复断网时 HF 超时重试卡死事件循环、全站请求 Failed to fetch）。
-  2. `embedding_provider.py`：HF 快照已完整缓存时改 `local_files_only=True` 离线加载（跳过联网版本校验）。
-  3. `tool_router.py`：`_detect_human_transfer` 只基于用户可见输入（修复系统上下文中"人工客服"字样把所有带上下文请求劫持到转人工并静默创建排队记录）。
-  4. 新增 `tests/test_tool_router_context_safety.py`。
-- **文档重组**：删除根目录旧 README 与多份旧开发文档（痛点/项目开发文档/演示脚本等），新增三份交付报告与对应开发 Prompt（多来源信息整合、评测集建设、前端视觉重塑）。
+- 分支 `main`，无未提交改动，未 push。
+- 根目录文档体系：`README.md`（重写版，含实测指标）+ `docs/ARCHITECTURE.md` + `docs/screenshots/` 占位；旧开发文档与交付报告已清理出库。
+- Docker 化产物已提交（compose/Dockerfile×2/dockerignore×2/docker_init.py/docker_seed_users.sql）。
+- `.gitignore` 已补全：`.codebuddy/`、`*.tsbuildinfo`、`backend/demo_cleanup_backup_*.json`。
 - 运行时产物（vector_store/workflow_repository/uploads/评测报告 JSON）均已 gitignore，仓库不跟踪。
+- 遗留：git 作者身份仍为占位符（Your Name），push 前需用户确认是否重写。
 
 ## 12. 关键配置（backend/.env.example 摘录）
 
@@ -259,8 +273,7 @@ FastAPI（backend/app/main.py，端口默认 8000）
 7. **状态值中英文混用**：schema 默认英文（'active'）vs 运行数据中文（'正常'）；metrics.py 硬编码集合映射，脆弱。
 8. **命名/遗留包袱**：`chroma_store.py` 实为 qdrant 实现；legacy RAGFlow 死分支靠硬编码开关关闭（`LEGACY_RAG_DEPRECATION` 标注 removal_candidate）；`coupon.py` 注释称"有 user_coupons 表后换 SQL"（优惠券数据当前来源见该 Flow 实现）。
 9. **巨型前端组件**：`FloatingAIAssistant.tsx` ~1540 行，上下文注入/会话/渲染/演示逻辑集中。
-10. **工程杂项**：`backend/` 根目录散落 `golden_question_report.json`、`demo_cleanup_backup_*.json`；`.codebuddy/` 目录入库（untracked）；测试依赖本机 MySQL，CI 化需先解耦；多轮 LLM 调用（分类/改写/追问/综合）对无结构化缓存的依赖使延迟与成本集中在 DeepSeek API。
-11. **未提交改动待收尾**：§11 所列 3 处修复 + 新测试 + 文档重组尚未 commit（已验证的功能修复，建议尽快提交以免丢失或与后续工作冲突）。
+10. **工程杂项**：测试依赖本机 MySQL，CI 化需先解耦；多轮 LLM 调用（分类/改写/追问/综合）对无结构化缓存的依赖使延迟与成本集中在 DeepSeek API；`demo_cleanup_backup_*.json`、`.codebuddy/`、`*.tsbuildinfo` 已于 2026-09-23 补全 gitignore 并移出跟踪（磁盘保留）。
 
 ## 15. 生成开发 Prompt 时必须知道的约束
 
