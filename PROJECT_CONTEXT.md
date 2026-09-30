@@ -107,6 +107,8 @@ FastAPI（backend/app/main.py，端口默认 8000）
 - **Embedding 双变体**（build arg `EMBEDDING_PRELOAD`）：`true` 默认（torch CPU 索引安装 + BGE 预下载进镜像层，HF_HOME=/opt/hf-cache，镜像 2.3GB，离线可用）；`false` slim（剔除 torch/sentence-transformers，412MB，配 `EMBEDDING_PROVIDER=openai` 走 API，代码侧 embedding_provider 懒加载保证可 import）。
 - **国内网络适配**：基础镜像经 daocloud 代理拉取 retag（auth.docker.io 被 DNS 污染）；Dockerfile 默认 `HF_ENDPOINT=hf-mirror.com`、`PIP_INDEX_URL=清华源`（PyPI 直连响应截断）；Dockerfile 不可用 `# syntax=docker/dockerfile:1`（会拉语法前端镜像失败）。
 - **前端构建期注入**：`NEXT_PUBLIC_API_BASE_URL` 经 build arg 在 `next build` 时内联（compose 默认 localhost:8000，服务器部署需改）。
+- **CORS 环境变量化（2026-09-23）**：`Settings.cors_extra_origins`（env `CORS_EXTRA_ORIGINS`，逗号分隔多来源），main.py 在 localhost 基础列表外合并解析；不配置时行为与原 localhost 列表完全一致（已 curl 双向实测）。服务器部署在 compose 设 `CORS_EXTRA_ORIGINS=http://<IP>:3000`。
+- **Makefile 一键入口（根目录）**：up/down/logs/ps/build（含 slim 变体说明）/test/eval/rebuild-index/reset-data/install/dev-backend/dev-frontend。注意：PY 变量为 backend/ 内相对路径（配方均先 cd backend）；Windows Git Bash 无 make 二进制，验证靠严格解析脚本，Linux 服务器原生可用。
 
 ## 5. API 接口清单（实际存在的路由）
 
