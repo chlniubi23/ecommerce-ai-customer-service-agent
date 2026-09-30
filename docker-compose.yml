@@ -51,6 +51,9 @@ services:
       MYSQL_USER: root
       MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-demo123}
       MYSQL_DATABASE: ai_agent_commerce_demo
+      # 服务器部署 CORS 放行来源（前端访问地址），如 http://123.45.67.89:3000，多个用逗号分隔；
+      # 本机默认留空（localhost 已在代码内放行）
+      CORS_EXTRA_ORIGINS: ${CORS_EXTRA_ORIGINS:-}
     volumes:
       # qdrant 向量库持久化：命名卷，容器内从零构建（宿主开发目录的 vector_store 不挂载）
       - qdrant_data:/app/vector_store/qdrant

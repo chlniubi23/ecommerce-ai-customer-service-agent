@@ -84,6 +84,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS 来源组装：
+# - 本地开发：localhost/127.0.0.1 的 3000/3001 端口 + settings.frontend_url；
+# - 服务器部署：设 CORS_EXTRA_ORIGINS="http://<服务器IP>:3000"（逗号分隔可多个），
+#   容器部署经 docker-compose.yml environment 透传，直跑则写 backend/.env。
+_extra_origins = [
+    origin.strip()
+    for origin in settings.cors_extra_origins.split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -92,6 +101,7 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
+        *_extra_origins,
     ],
     allow_credentials=True,
     allow_methods=["*"],

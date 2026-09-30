@@ -47,6 +47,10 @@ class Settings(BaseSettings):
 
     # ========== CORS 配置 ==========
     frontend_url: str = "http://localhost:3000"
+    # 逗号分隔的额外 CORS 来源（服务器部署填 http://<服务器IP>:3000，可多个）。
+    # 留空时行为与仅 localhost 本地开发完全一致。
+    # 容器部署经 docker-compose.yml 的 CORS_EXTRA_ORIGINS 透传。
+    cors_extra_origins: str = ""
 
     # ========== MySQL Business Database ==========
     mysql_host: str = "127.0.0.1"
