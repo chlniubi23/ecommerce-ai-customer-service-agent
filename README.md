@@ -183,4 +183,4 @@ cd backend && .venv/Scripts/python.exe scripts/reset_business_data.py
 
 ## License
 
-MIT（license 文件由后续任务添加）。
+本项目基于 [MIT License](./LICENSE) 开源。
