@@ -1,5 +1,7 @@
 # E-commerce AI Customer Service Agent
 
+![CI](https://github.com/chlniubi23/ecommerce-ai-customer-service-agent/actions/workflows/ci.yml/badge.svg)
+
 电商 AI 客服 Agent 演示平台——在真实 MySQL 数据库之上提供多意图对话、RAG 知识问答与**可控写操作**（退款/投诉/转人工，AI 绝不静默写库）。前端 Next.js 全局悬浮助手 + 后端 FastAPI 决策链，全链路可评测、可审计。
 
 ## 核心能力
