@@ -219,6 +219,7 @@ FastAPI（backend/app/main.py，端口默认 8000）
 
 - **单测**：`backend/tests/` 22 个测试文件 + `conftest.py`（强制 `EMBEDDING_WARMUP=false`、`HF_HUB_OFFLINE=1`，测试不真实加载模型）。覆盖：聊天流式、分类器上下文安全、投诉跟进路由/意图/待确认流程、协调器安全、优惠券运行时/路由、embedding 预热、转人工入队、知识分类过滤、两个 FSM 的 order_id、多来源整合、订单号提取、订单查询路由、个性化推荐、主动事件、RAG 评测集与向量库、路由上下文、tool_router 上下文安全。最近全绿 **130 passed**（须用 `backend/.venv` 跑，系统 Anaconda 缺依赖）。测试依赖本机 MySQL。
 - **评测**：`evaluation/run_eval.py`（路由层评测：离线模式禁用 LLM 逼规则层独立作答，可入 CI；`--live` 在线全量）+ `evaluation/run_rag_eval.py`（30 条标注用例，10 类 × ≥2 条含口语变体 + 3 条无答案；指标 top1/top3 命中率、无答案过滤率，`--fail-under` 可设阈值非零退出）。黄金问题校准（`RETRIEVAL_MIN_SCORE=0.35`）有脚本与报告支撑。
+- **GitHub Actions CI（2026-09-30 起）**：`.github/workflows/ci.yml`，main push/PR 触发，backend（MySQL8 服务容器 + 三段 SQL 灌库 → pytest 130 → rebuild 索引 → RAG 评测 `--fail-under 0.8` → 路由评测）+ frontend（npm ci + build）两 job 并行，README 有徽章。**关键坑（已固化注释）**：torch 必须从 CPU 索引装（PyPI 默认 CUDA 构建的 embedding 数值有漂移，曾致无答案用例「怎么申请营业执照」top1=0.4653 未过滤、无答案过滤率 66.67% 失败；换 CPU 构建后 100% 恢复）；pytest 步骤 HF_HUB_OFFLINE=1，rebuild 步骤不设（要联网下模型）。
 - **脚本**：`scripts/smoke_test.py`、`smoke_multisource.py`（端到端冒烟）、`golden_question_validation.py`、`diagnose_knowledge_runtime_consistency.py`、`reset_business_data.py`。
 
 ## 10. 已实现功能清单（截至 2026-09-23）
