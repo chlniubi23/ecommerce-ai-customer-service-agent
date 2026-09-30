@@ -75,10 +75,16 @@ jobs:
 
       - name: 重建 RAG 向量索引（真实 BGE embedding）
         # 此步需要联网下载 BAAI/bge-small-zh-v1.5（约 90MB，runner 直连 HF），
-        # 故不设 HF_HUB_OFFLINE；约 20-30 秒（CPU）
+        # 故不设 HF_HUB_OFFLINE；约 20-30 秒（CPU）。
+        # OMP 固定单线程：不同 runner 的线程归约顺序会造成 embedding 数值微漂移，
+        # 使临界用例（如无答案用例28）在 coverage/relevance 两种补检策略间翻转。
+        env:
+          OMP_NUM_THREADS: "1"
         run: cd backend && python rebuild_rag_index.py --force
 
       - name: RAG 评测（top1 ≥ 0.8 且无答案过滤率 100%，否则非零退出）
+        env:
+          OMP_NUM_THREADS: "1"
         run: cd backend && python -m evaluation.run_rag_eval --fail-under 0.8
 
       - name: 路由评测（离线模式，规则层独立作答）
