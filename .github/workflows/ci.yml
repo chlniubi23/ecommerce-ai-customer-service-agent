@@ -45,7 +45,12 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: 安装后端依赖
-        run: pip install -r backend/requirements.txt
+        # torch 先从 CPU 索引安装（与 Dockerfile/本机一致）：Linux PyPI 默认 torch 拉全套 CUDA 依赖
+        # （+2.5GB 下载），且 CUDA 构建与本机 CPU 构建的 embedding 数值存在漂移——曾致
+        # 无答案用例「怎么申请营业执照」未被过滤（无答案过滤率 66.67%，CI 失败）
+        run: |
+          pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r backend/requirements.txt
 
       - name: 等待 MySQL 就绪并导入 schema/种子/演示数据
         # 顺序与 docker-compose.yml 首启一致：schema(建库建表) → 种子用户(demo 数据依赖"最新已存在用户")
