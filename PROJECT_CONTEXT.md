@@ -249,7 +249,7 @@ FastAPI（backend/app/main.py，端口默认 8000）
 - Docker 化产物已提交（compose/Dockerfile×2/dockerignore×2/docker_init.py/docker_seed_users.sql）。
 - `.gitignore` 已补全：`.codebuddy/`、`*.tsbuildinfo`、`backend/demo_cleanup_backup_*.json`。
 - 运行时产物（vector_store/workflow_repository/uploads/评测报告 JSON）均已 gitignore，仓库不跟踪。
-- 遗留：git 作者身份仍为占位符（Your Name），push 前需用户确认是否重写。
+- git 作者身份已统一为 chlniubi23 <192792980+chlniubi23@users.noreply.github.com>（2026-09-30 用户侧重写完成）；已打 tag `v1.0`（含 MIT LICENSE 定稿，61f853d），待用户侧用 gh CLI 创建仓库并 push（含 tag）。
 
 ## 12. 关键配置（backend/.env.example 摘录）
 
