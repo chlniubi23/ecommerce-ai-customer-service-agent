@@ -56,3 +56,6 @@ Thumbs.db
 .codebuddy/
 *.tsbuildinfo
 backend/demo_cleanup_backup_*.json
+
+# ZCode 工具本地文件
+.zcodeignore
