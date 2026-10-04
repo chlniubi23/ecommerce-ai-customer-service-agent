@@ -26,6 +26,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/.next ./.next
+# public/ 为静态资源目录（AI 助手头像、商品 SVG），next start 直接对外服务，必须随镜像携带
+COPY --from=builder /app/public ./public
 
 EXPOSE 3000
 CMD ["npm", "start"]
