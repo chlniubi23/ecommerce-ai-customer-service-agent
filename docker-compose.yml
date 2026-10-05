@@ -35,8 +35,10 @@ services:
     build:
       context: ./backend
       args:
-        # Embedding 双变体：true=本地 BGE（默认）；服务器（2核2G）部署改 false（见下方注释块）
-        EMBEDDING_PRELOAD: "true"
+        # Embedding 双变体：true=本地 BGE（默认，含 torch+模型，~2.3GB）；
+        # false=slim 变体（~412MB，跳过 torch 与模型，运行时配 EMBEDDING_PROVIDER=openai）。
+        # 经根目录 .env 的 EMBEDDING_PRELOAD=false 覆盖（服务器部署场景）。
+        EMBEDDING_PRELOAD: "${EMBEDDING_PRELOAD:-true}"
         HF_ENDPOINT: https://hf-mirror.com
     container_name: ecom-agent-backend
     env_file:
