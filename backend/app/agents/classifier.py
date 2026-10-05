@@ -250,6 +250,24 @@ def _classify_knowledge_intent_by_rule(user_input: str) -> IntentType | None:
     if any(term in text for term in knowledge_domain_terms) and any(term in text for term in knowledge_question_terms):
         return IntentType.KNOWLEDGE_QUERY
 
+    # 口语退款时效查询（来源：2026-10-05 演示实测案例「我那笔钱咋还没回来啊」——
+    # 无"退款"字样、未命中任何规则层，LLM 分类误判为 refund 意图，被退款闸门追问原因，
+    # 而用户只是想查到账时效知识）。命中下列任一短语等价于同时命中领域词+疑问词，
+    # 规则层直接路由知识库，不再依赖 LLM 兜底。
+    colloquial_refund_query_terms = (
+        "钱咋还没", "钱怎么还没", "钱还没回来", "还没到账", "咋还没到账",
+        "多久能到账", "啥时候到账", "退款还没到", "还没退给我",
+    )
+    # 保护条款（红线）：可见输入同时含退款申请动词时**不路由知识库**——
+    # 申请表达永远优先于查询表达，返回 None 交回后续逻辑进退款确认闸门。
+    refund_apply_verbs = (
+        "我要退", "帮我退", "申请退款", "发起退款", "我想退款", "退款申请",
+    )
+    if any(term in text for term in colloquial_refund_query_terms):
+        if not any(verb in text for verb in refund_apply_verbs):
+            return IntentType.KNOWLEDGE_QUERY
+        return None
+
     knowledge_keywords = [
         "规则", "政策", "制度", "规范", "sop", "faq", "常见问题", "平台帮助",
         "帮助中心", "说明", "条款", "条件", "七天无理由", "退货条件", "退款规则",
