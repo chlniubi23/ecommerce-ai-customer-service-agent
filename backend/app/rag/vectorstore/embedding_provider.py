@@ -144,6 +144,13 @@ class LocalBGEProvider:
 class OpenAICompatProvider:
     """OpenAI 兼容 Embedding API Provider（独立 base_url/key，批量 + 失败重试）"""
 
+    # 单条输入上限：bge 系 API（如硅基流动）对超过 512 token 的输入直接 400 拒绝；
+    # 本地 sentence-transformers 同为 512 token 上限但会自动截断。为对齐两端语义，
+    # API 侧同样截断（中文约 1 字 ≈ 1 token，450 字符留出安全余量）。
+    # 截断只影响超长父块的尾部——父块不参与检索命中（must_not 过滤），完整内容
+    # 仍经 parent_content 返回，检索语义不受影响。
+    _MAX_INPUT_CHARS = 450
+
     def __init__(self, model: str, api_key: str, base_url: str, dimension: int):
         from openai import OpenAI
 
@@ -152,7 +159,11 @@ class OpenAICompatProvider:
         self._client = OpenAI(api_key=api_key, base_url=base_url or None)
 
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
-        response = self._client.embeddings.create(model=self.model, input=texts)
+        truncated = [
+            t[: self._MAX_INPUT_CHARS] if len(t) > self._MAX_INPUT_CHARS else t
+            for t in texts
+        ]
+        response = self._client.embeddings.create(model=self.model, input=truncated)
         return [item.embedding for item in response.data]
 
     def _embed_with_retry(self, texts: list[str]) -> list[list[float]]:
@@ -167,6 +178,17 @@ class OpenAICompatProvider:
                 )
                 if attempt < _OPENAI_MAX_RETRIES:
                     time.sleep(_OPENAI_RETRY_BACKOFF_SECONDS * attempt)
+        if len(texts) > 1:
+            # 整批失败（如批内个别超限条目导致 API 400）：降级为逐条请求，
+            # 隔离坏条目，避免一条失败连带丢弃同批其余条目（2026-10-05 服务器
+            # 部署实测：未隔离时 79 文件仅入库 52）。
+            logger.warning(
+                "[EMBEDDING] 整批嵌入失败（%s），降级为逐条请求隔离坏条目", last_error
+            )
+            vectors: list[list[float]] = []
+            for text in texts:
+                vectors.append(self._embed_with_retry([text])[0])
+            return vectors
         raise RuntimeError(f"Embedding API 调用失败: {last_error}") from last_error
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
