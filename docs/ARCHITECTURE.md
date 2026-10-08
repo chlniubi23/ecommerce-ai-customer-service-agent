@@ -18,6 +18,11 @@
 
 **⑤ RAG 知识子系统**（`backend/app/knowledge_agent/` + `backend/app/rag/`）——独立的知识问答链路：查询理解（口语改写）→ 语义+关键词融合检索（RRF）→ 类别过滤与二次补检 → 父块组装 → 受限生成。向量库为 qdrant 本地模式。
 
+![详细架构图](architecture-detailed.svg)
+
+<details>
+<summary>查看 Mermaid 源码</summary>
+
 ```mermaid
 graph TB
     subgraph FE["前端 Next.js"]
@@ -70,6 +75,8 @@ graph TB
     OTHER --> DB
     RUN -.->|SSE 经 ContextVar 流式| UI
 ```
+
+</details>
 
 ## 2. 核心模块职责
 

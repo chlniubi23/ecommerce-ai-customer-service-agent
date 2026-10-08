@@ -29,6 +29,11 @@
 
 ## 架构图
 
+![系统架构图](docs/architecture.svg)
+
+<details>
+<summary>查看 Mermaid 源码</summary>
+
 ```mermaid
 graph TB
     FE["前端 Next.js 15<br/>frontend/ — 全局悬浮 AI 助手"]
@@ -48,11 +53,12 @@ graph TB
     FLOWS --> TR --> TOOLS
     TOOLS --> DB
     FLOWS -->|knowledge_query| RET
-    FLOWS -->|knowledge_query| RET
     RET --> EMB
     RET --> QD
     API -.->|SSE 流式响应| FE
 ```
+
+</details>
 
 ## 技术栈
 
