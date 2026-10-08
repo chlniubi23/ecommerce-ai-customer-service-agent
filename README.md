@@ -21,8 +21,13 @@
   <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-02.png" width="46%" alt="订单与 AI 助手">
 </p>
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-03.png" width="22%" alt="AI 助手对话面板">
+  <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-03.png" width="22%" alt="AI 助手对话">
+  <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-04.png" width="22%" alt="AI 助手对话">
+  <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-05.png" width="22%" alt="AI 助手对话">
+  <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-06.png" width="22%" alt="AI 助手对话">
 </p>
+
+AI 助手实际工作画面：多轮追问收集参数、写操作确认卡片、知识问答引用来源、多 Agent 跨域协作。
 
 ## 核心能力
 
