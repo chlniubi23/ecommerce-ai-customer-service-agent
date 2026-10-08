@@ -144,6 +144,15 @@ def run(force: bool) -> None:
         for p, e in errors:
             logger.warning("  %s: %s", p, e)
 
+    # 守卫：入库为 0 或全部文件报错时以非零退出，防止下游（CI 评测/容器启动）
+    # 拿到空索引才暴露问题。2026-10-08 CI 事故：transformers 传递依赖漂移导致
+    # 模型导入失败，79 文件全部 SKIP 仍 exit 0，评测全灭才被发现。
+    if indexed_files == 0 and files:
+        raise SystemExit(
+            f"索引重建失败：{len(files)} 个文件全部未入库（错误 {len(errors)} 个）。"
+            "通常是 Embedding 依赖加载失败，检查上方 SKIP 日志。"
+        )
+
     try:
         chroma_store._client.close()
     except Exception:

@@ -29,6 +29,12 @@ python-multipart==0.0.20
 sentence-transformers==6.1.0
 torch==2.6.0
 qdrant-client==1.19.1
+# 钉死 sentence-transformers 的传递依赖：transformers 新版（>5.17.0）曾与 ST 6.1.0
+# 不兼容（PreTrainedModel 导入失败 → CI 索引重建 79 文件全部 SKIP、向量库为空），
+# 以下为本地验证可用的组合（2026-10-08）
+transformers==5.17.0
+huggingface-hub==1.32.0
+tokenizers==0.23.2
 
 # Testing
 pytest==8.3.4
