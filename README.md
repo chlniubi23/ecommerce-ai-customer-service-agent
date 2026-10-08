@@ -29,7 +29,7 @@
 
 ## 架构图
 
-![系统架构图](docs/architecture.svg)
+![系统架构图](https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/architecture.svg)
 
 <details>
 <summary>查看 Mermaid 源码</summary>
