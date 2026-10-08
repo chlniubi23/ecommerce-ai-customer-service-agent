@@ -12,9 +12,19 @@
 
 [▶ 全流程演示（B 站，约 7 分钟）](https://www.bilibili.com/video/BV1jnHs6HEUt/)——覆盖：订单查询（页面上下文注入，免报单号）、物流追踪、**退款确认闸门**（AI 起草 → 用户卡片确认才落库）、口语化知识问答（RAG 检索 + 来源引用）、多 Agent 跨域协作（查物流 + 投诉防重复创建）、实时指标看板。
 
-## 核心能力
+## 界面预览
 
-<!-- 截图待补：界面截图放置于 docs/screenshots/，在此处插入 -->
+线上环境（[134.175.48.116:3000](http://134.175.48.116:3000)）实际界面：
+
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-01.png" width="46%" alt="商城界面">
+  <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-02.png" width="46%" alt="订单与 AI 助手">
+</p>
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-03.png" width="22%" alt="AI 助手对话面板">
+</p>
+
+## 核心能力
 
 - **多意图路由与多 Agent 协作**：三层意图分类（前端可信指令规则 → 知识关键词规则 → LLM JSON 兜底），9 个业务意图分发到 9 个业务 Flow
 - **FSM 多轮对话与中断恢复**：退款申请、投诉创建等写操作走状态机多轮流程，中途切换话题可恢复现场
