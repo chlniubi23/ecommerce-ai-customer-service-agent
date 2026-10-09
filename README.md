@@ -17,8 +17,8 @@
 线上环境（[134.175.48.116:3000](http://134.175.48.116:3000)）实际界面：
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-01.png" width="46%" alt="商城界面">
-  <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-02.png" width="46%" alt="订单与 AI 助手">
+  <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-01.png?v=2" width="46%" alt="商城界面">
+  <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-02.png?v=2" width="46%" alt="订单与 AI 助手">
 </p>
 <p align="center">
   <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-03.png" width="22%" alt="AI 助手对话">
