@@ -84,7 +84,5 @@ const PRODUCT_IMAGE_FALLBACK = "/products/placeholder.svg";
 
 export function productImage(src?: string | null) {
   if (!src) return PRODUCT_IMAGE_FALLBACK;
-  // 旧演示数据可能仍指向已删除的 .jpg，统一回退到内置占位图，避免破图
-  if (/\/products\/[\w-]+\.jpg$/i.test(src)) return PRODUCT_IMAGE_FALLBACK;
   return src;
 }
