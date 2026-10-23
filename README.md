@@ -2,11 +2,7 @@
 
 ![CI](https://github.com/chlniubi23/ecommerce-ai-customer-service-agent/actions/workflows/ci.yml/badge.svg)
 
-电商 AI 客服 Agent 演示平台——在真实 MySQL 数据库之上提供多意图对话、RAG 知识问答与**可控写操作**（退款/投诉/转人工，AI 绝不静默写库）。前端 Next.js 全局悬浮助手 + 后端 FastAPI 决策链，全链路可评测、可审计。
-
-## 在线演示
-
-**[http://134.175.48.116:3000](http://134.175.48.116:3000)**（部署于腾讯轻量服务器 2C2G，slim 镜像 + API Embedding，详见 [DEPLOY.md](./DEPLOY.md)）｜演示账号：`13560569291` / `123456`
+电商 AI 客服 Agent 演示平台——在真实 MySQL 数据库之上提供多意图对话、RAG 知识问答与**可控写操作**（退款/投诉/转人工，AI 绝不静默写库）。前端 Next.js 全局悬浮助手 + 后端 FastAPI 决策链，全链路可评测、可审计。已完整实践云服务器 Docker 化部署上线（部署手册见 [DEPLOY.md](./DEPLOY.md)，可按手册一键复现）。
 
 ## 演示视频
 
@@ -14,7 +10,7 @@
 
 ## 界面预览
 
-线上环境（[134.175.48.116:3000](http://134.175.48.116:3000)）实际界面：
+部署环境实拍界面（完整录屏见上方演示视频）：
 
 <p align="center">
   <img src="https://cdn.jsdelivr.net/gh/chlniubi23/ecommerce-ai-customer-service-agent@main/docs/screenshots/ui-01.png?v=2" width="46%" alt="商城界面">
